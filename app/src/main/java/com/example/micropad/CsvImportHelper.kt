@@ -23,7 +23,7 @@ fun CsvImportButton(onFileSelected: (Uri?) -> Unit) {
     }
 
     Button(onClick = {
-        launcher.launch(arrayOf("text/csv"))
+        launcher.launch(arrayOf("*/*"))
     }) {
         Text("Import CSV")
     }

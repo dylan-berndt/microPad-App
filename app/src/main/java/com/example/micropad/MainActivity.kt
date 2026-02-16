@@ -1,6 +1,7 @@
 package com.example.micropad
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -100,18 +101,13 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(16.dp))
 
         CsvImportButton { uri ->
+            uri?.let {
+                val isValid = CsvParser.validateScientificCsv(context, it)
 
-            if (uri != null) {
-
-                val isValid = CsvParser.parseAndValidate(
-                    context.contentResolver,
-                    uri
-                )
-
-                resultMessage = if (isValid) {
-                    "✅ CSV schema is valid"
+                if (isValid) {
+                    Toast.makeText(context, "Valid Scientific CSV", Toast.LENGTH_SHORT).show()
                 } else {
-                    "❌ Invalid CSV schema"
+                    Toast.makeText(context, "Invalid CSV Structure", Toast.LENGTH_SHORT).show()
                 }
             }
         }

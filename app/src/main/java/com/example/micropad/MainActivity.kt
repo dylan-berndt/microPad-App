@@ -105,9 +105,9 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                 val isValid = CsvParser.validateScientificCsv(context, it)
 
                 if (isValid) {
-                    Toast.makeText(context, "Valid Scientific CSV", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Valid file", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Invalid CSV Structure", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Invalid file", Toast.LENGTH_SHORT).show()
                 }
             }
         }

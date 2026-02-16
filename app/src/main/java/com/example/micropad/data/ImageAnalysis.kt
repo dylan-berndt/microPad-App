@@ -172,9 +172,9 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
     }
 
     // Ugh
-    val bMeasured = found.map { it.`val`[0] }.toDoubleArray()
+    val rMeasured = found.map { it.`val`[0] }.toDoubleArray()
     val gMeasured = found.map { it.`val`[1] }.toDoubleArray()
-    val rMeasured = found.map { it.`val`[2] }.toDoubleArray()
+    val bMeasured = found.map { it.`val`[2] }.toDoubleArray()
 
     val bExpected = reference.map { it.`val`[0] }.toDoubleArray()
     val gExpected = reference.map { it.`val`[1] }.toDoubleArray()
@@ -200,54 +200,6 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
     Core.merge(channels, balanced)
 
     // Clean up
-    channels.forEach { it.release() }
-
-    return balanced
-}
-
-
-// TODO: Find a better way to rebalance images
-fun rebalanceImage2(image: Mat, found: List<Scalar>, reference: List<Scalar>): Mat {
-    val balanced = image.clone()
-
-    var bGain = 0.0
-    var gGain = 0.0
-    var rGain = 0.0
-
-    var count = 0
-    for (i in found.indices) {
-        if (found[i].`val`[0] > 10) {
-            bGain += reference[i].`val`[0] / found[i].`val`[0]
-            count++
-        }
-        if (found[i].`val`[1] > 10) {
-            gGain += reference[i].`val`[1] / found[i].`val`[1]
-        }
-        if (found[i].`val`[2] > 10) {
-            rGain += reference[i].`val`[2] / found[i].`val`[2]
-        }
-    }
-
-    bGain /= count
-    gGain /= count
-    rGain /= count
-
-    // Clamp gains to reasonable range
-    bGain = bGain.coerceIn(0.5, 2.0)
-    gGain = gGain.coerceIn(0.5, 2.0)
-    rGain = rGain.coerceIn(0.5, 2.0)
-
-    println("Gains - B: $bGain, G: $gGain, R: $rGain")
-
-    // Apply correction
-    val channels = ArrayList<Mat>()
-    Core.split(balanced, channels)
-
-    channels[0].convertTo(channels[0], -1, bGain, 0.0)
-    channels[1].convertTo(channels[1], -1, gGain, 0.0)
-    channels[2].convertTo(channels[2], -1, rGain, 0.0)
-
-    Core.merge(channels, balanced)
     channels.forEach { it.release() }
 
     return balanced
@@ -282,7 +234,7 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean = false): Mat {
 
     val colors = extractCalibrationColors(shapes)
 
-    val balanced = rebalanceImage2(image, colors, expectedColors)
+    val balanced = rebalanceImage(image, colors, expectedColors)
 
     return balanced
 }

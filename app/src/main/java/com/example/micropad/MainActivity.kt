@@ -22,6 +22,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -99,6 +100,10 @@ enum class AppDestinations(
 
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var resultMessage by remember { mutableStateOf("") }
+
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -109,8 +114,24 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(16.dp))
 
         CsvImportButton { uri ->
-            println("Selected CSV: $uri")
+
+            if (uri != null) {
+
+                val isValid = CsvParser.parseAndValidate(
+                    context.contentResolver,
+                    uri
+                )
+
+                resultMessage = if (isValid) {
+                    "✅ CSV schema is valid"
+                } else {
+                    "❌ Invalid CSV schema"
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = resultMessage)
     }
 }
 

@@ -1,6 +1,7 @@
 package com.example.micropad
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -29,11 +30,20 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
+import com.example.micropad.data.CsvImportButton
 import com.example.micropad.ui.theme.MicroPadTheme
+import com.example.micropad.ui.GalleryPickerScreen
+
+import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (!OpenCVLoader.initLocal()) {
+            Log.e("OpenCV", "Failed to load OpenCV")
+        }
+
         enableEdgeToEdge()
         setContent {
             MicroPadTheme {
@@ -66,10 +76,14 @@ fun MicroPadApp() {
         }
     ) {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-            Greeting(
-                name = "Android",
-                modifier = Modifier.padding(innerPadding)
-            )
+            when (currentDestination) {
+                AppDestinations.HOME -> Greeting(
+                    name = "Android",
+                    modifier = Modifier.padding(innerPadding)
+                )
+                AppDestinations.GALLERY -> GalleryPickerScreen()
+                AppDestinations.PROFILE -> GalleryPickerScreen()
+            }
         }
     }
 }
@@ -79,7 +93,7 @@ enum class AppDestinations(
     val icon: ImageVector,
 ) {
     HOME("Home", Icons.Default.Home),
-    FAVORITES("Favorites", Icons.Default.Favorite),
+    GALLERY("Gallery", Icons.Default.Favorite),
     PROFILE("Profile", Icons.Default.AccountBox),
 }
 

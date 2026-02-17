@@ -1,16 +1,26 @@
 // Integrating camera functionality
 package com.example.micropad.ui
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.view.CameraController
 import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
@@ -25,25 +35,85 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import java.io.File
 
 /**
- * A screen that provides a camera preview, allows capturing an image,
- * and shows a preview of the captured image.
+ * A screen that handles camera permission and displays the camera preview.
  *
  * @param onImageCapture A callback invoked when the user confirms they want to use the captured image.
  */
 @Composable
 fun CameraScreen(onImageCapture: (Uri) -> Unit) {
     val context = LocalContext.current
+    // We need the activity to check for permission rationale.
+    val activity = context as? Activity
+
+    // State to track if the camera permission is granted.
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    // Launcher for requesting camera permission.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            hasCameraPermission = isGranted
+        }
+    )
+
+    // Request permission when the screen is first displayed if not already granted.
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) {
+            permissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    // Display content based on whether the permission is granted.
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (hasCameraPermission) {
+            CameraContent(onImageCapture = onImageCapture)
+        } else {
+            PermissionRationaleScreen(
+                onRequestPermission = {
+                    // If the user has permanently denied the permission, open app settings.
+                    // Otherwise, launch the permission request again.
+                    if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)) {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        intent.data = Uri.fromParts("package", context.packageName, null)
+                        context.startActivity(intent)
+                    } else {
+                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                }
+            )
+        }
+    }
+}
+
+/**
+ * The main content of the camera screen, shown when permission is granted.
+ * This includes the camera preview and image preview logic.
+ *
+ * @param onImageCapture A callback invoked when the user confirms they want to use the captured image.
+ */
+@Composable
+private fun CameraContent(onImageCapture: (Uri) -> Unit) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // State to hold the URI of the captured image. A null value means no image has been captured yet.
+    // State to hold the URI of the captured image.
     var capturedImageUri: Uri? by remember { mutableStateOf(null) }
 
     // Create and remember the camera controller, configuring it for image capture.
@@ -73,6 +143,32 @@ fun CameraScreen(onImageCapture: (Uri) -> Unit) {
             onRetake = { capturedImageUri = null },
             onUsePhoto = onImageCapture
         )
+    }
+}
+
+/**
+ * A screen shown when camera permission is not granted, explaining why it's needed
+ * and providing a button to grant it.
+ *
+ * @param onRequestPermission A callback to request the camera permission.
+ */
+@Composable
+private fun PermissionRationaleScreen(onRequestPermission: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Camera permission is required to use this feature. Please grant the permission to continue.",
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(onClick = onRequestPermission) {
+            Text("Grant Permission")
+        }
     }
 }
 

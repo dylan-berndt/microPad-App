@@ -50,15 +50,6 @@ class MainActivity : ComponentActivity() {
         }
 
         enableEdgeToEdge()
-
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), 1001)
-        }
-
         setContent {
             MicroPadTheme {
                 MicroPadApp()

@@ -1,5 +1,7 @@
 package com.example.micropad
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -31,7 +34,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.example.micropad.data.CsvImportButton
+import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 
@@ -84,6 +89,9 @@ fun MicroPadApp() {
                 )
                 AppDestinations.GALLERY -> GalleryPickerScreen()
                 AppDestinations.PROFILE -> GalleryPickerScreen()
+                AppDestinations.CAMERA -> CameraScreen(onImageCapture = { uri ->
+                    Log.d("MainActivity", "Image captured: $uri")
+                })
             }
         }
     }
@@ -96,6 +104,7 @@ enum class AppDestinations(
     HOME("Home", Icons.Default.Home),
     GALLERY("Gallery", Icons.Default.Favorite),
     PROFILE("Profile", Icons.Default.AccountBox),
+    CAMERA("Camera", Icons.Default.Add)
 }
 
 @Composable

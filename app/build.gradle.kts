@@ -34,6 +34,7 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
     }
 }
 
@@ -47,6 +48,12 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
+
+    implementation(libs.androidx.camera.camera.core)
+    implementation(libs.androidx.camera.camera.lifecycle)
+    implementation(libs.androidx.camera.camera.camera2)
+    implementation(libs.androidx.camera.camera.view)
+    implementation(libs.androidx.compose.runtime)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

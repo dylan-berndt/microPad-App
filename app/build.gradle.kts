@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.activity)
+    implementation(libs.androidx.activity.ktx)
 
     // Compose BOM & UI
     implementation(platform(libs.androidx.compose.bom))
@@ -67,6 +68,13 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.opencv)
+
+    // Camera
+    implementation(libs.androidx.camera.camera.core)
+    implementation(libs.androidx.camera.camera.lifecycle)
+    implementation(libs.androidx.camera.camera.camera2)
+    implementation(libs.androidx.camera.camera.view)
+    implementation(libs.androidx.compose.runtime)
 
     // Testing
     testImplementation(libs.junit)

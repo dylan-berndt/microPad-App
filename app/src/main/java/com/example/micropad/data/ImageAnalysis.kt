@@ -16,6 +16,12 @@ import java.io.InputStream
 import java.io.FileOutputStream
 import java.io.File
 
+import kotlin.math.pow
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+
 
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
     return try {
@@ -48,19 +54,31 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
     val blurred = Mat()
     Imgproc.GaussianBlur(gray, blurred, Size(7.0, 7.0), 0.0)
 
-    if (log) {saveMat(blurred, "blurred.png", context)}
+    if (log) {
+        saveMat(blurred, "blurred.png", context)
+    }
 
     val thresh = Mat()
-    Imgproc.adaptiveThreshold(blurred, thresh, 255.0,
+    Imgproc.adaptiveThreshold(
+        blurred, thresh, 255.0,
         Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV,
-        35, 2.0)
+        35, 2.0
+    )
 
-    if (log) {saveMat(thresh, "threshold.png", context)}
+    if (log) {
+        saveMat(thresh, "threshold.png", context)
+    }
 
     // Find enclosed shapes in the image, this includes stuff like the dye dots
     val contours = ArrayList<MatOfPoint>()
     val hierarchy = Mat()
-    Imgproc.findContours(thresh, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+    Imgproc.findContours(
+        thresh,
+        contours,
+        hierarchy,
+        Imgproc.RETR_EXTERNAL,
+        Imgproc.CHAIN_APPROX_SIMPLE
+    )
 
     val visualization = image.clone()
     // Draw all contours; for debugging
@@ -68,7 +86,9 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
         val color = Scalar(0.0, 255.0, 0.0) // Green in BGR
         Imgproc.drawContours(visualization, contours, i, color, 2) // thickness = 2
     }
-    if (log) {saveMat(visualization, "contours.png", context)}
+    if (log) {
+        saveMat(visualization, "contours.png", context)
+    }
 
     gray.release()
     thresh.release()
@@ -206,14 +226,187 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
 }
 
 
+fun getCenter(contour: MatOfPoint): Point {
+    val m = Imgproc.moments(contour)
+    return Point(m.m10 / m.m00, m.m01 / m.m00)
+}
+
+
+// Used to shrink a contour around its center
+// Primarily exists to extract the center of the dye dots
+fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
+    val center = getCenter(contour)
+
+    val points: MutableList<Point> = mutableListOf<Point>()
+    for (point in contour.toList()) {
+        val direction = Point(point.x - center.x, point.y - center.y)
+        val offset = Point(direction.x * shrink, direction.y * shrink)
+        val newPoint = Point(center.x + offset.x, center.y + offset.y)
+
+        points.add(newPoint)
+    }
+
+    val newContour = MatOfPoint(*points.toTypedArray())
+
+    return newContour
+}
+
+
+fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Mat {
+    val output = image.clone()
+
+    for ((index, pair) in orderedDots.withIndex()) {
+        val contour = pair.first
+        val center = getCenter(contour)
+
+        Imgproc.drawContours(output, listOf(contour), -1,
+            Scalar(0.0, 255.0, 0.0), 2)
+
+        // Draw index number
+        Imgproc.putText(
+            output,
+            index.toString(),
+            center,
+            Imgproc.FONT_HERSHEY_SIMPLEX,
+            0.8,
+            Scalar(0.0, 0.0, 255.0),
+            2
+        )
+    }
+
+    return output
+}
+
+
+fun assignGridIndices(
+    dots: List<Pair<MatOfPoint, Scalar>>
+): List<Pair<Pair<MatOfPoint, Scalar>, Pair<Int, Int>>> {
+    if (dots.isEmpty()) return emptyList()
+
+    val centers = dots.map { Pair(it, getCenter(it.first)) }
+
+    // Estimate grid spacing from nearest-neighbor distances
+    val distances = centers.map { (_, p) ->
+        centers
+            .filter { (_, q) -> q != p }
+            .minOf { (_, q) -> Math.hypot(q.x - p.x, q.y - p.y) }
+    }
+    val spacing = distances.average()
+    // At 30 degrees of rotation, a neighbor in the same row can be
+    // offset vertically by spacing * sin(30) = spacing * 0.5
+    // Use 0.6 to give a little headroom
+    val rowTolerance = spacing * 0.6
+
+    // Group into rows by Y proximity, using spacing-aware tolerance
+    val sortedByY = centers.sortedBy { it.second.y }
+    val rows = mutableListOf<MutableList<Pair<Pair<MatOfPoint, Scalar>, Point>>>()
+
+    for (item in sortedByY) {
+        val matchingRow = rows.find { row ->
+            val avgY = row.map { it.second.y }.average()
+            Math.abs(item.second.y - avgY) < rowTolerance
+        }
+        if (matchingRow != null) {
+            matchingRow.add(item)
+        } else {
+            rows.add(mutableListOf(item))
+        }
+    }
+
+    // Within each row, sort by X to get column index
+    return rows
+        .sortedBy { row -> row.map { it.second.y }.average() }
+        .flatMapIndexed { rowIdx, row ->
+            row.sortedBy { it.second.x }
+                .mapIndexed { colIdx, item ->
+                    Pair(item.first, Pair(rowIdx, colIdx))
+                }
+        }
+}
+
+
 // Finds the donut shapes in the preprocessed image
 // Returns a List of all dots that were found, each element consisting of:
-// List<Point>: the bounding box, and Scalar: the extracted color value
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): List<Pair<List<Point>, Scalar>>? {
-    // TODO: Check for area, color, and number of holes in each contour to find dots
-    // TODO: Either rotate images or determine an ordering scheme that is consistent
+// MatOfPoint: the dot contour, and Scalar: the extracted color value
+// Attempts to order dots from left to right, then top to bottom
+fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean, shrink: Float = 0.4f): List<Pair<MatOfPoint, Scalar>> {
+    val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
 
-    return null
+    var i = 0
+    for (contour in contours) {
+        val area = Imgproc.contourArea(contour)
+        val rect = Imgproc.boundingRect(contour)
+        val diameter = (rect.width + rect.height) / 2.0
+
+        // Check if the area of the contour matches a circle
+        // with the same diameter as the width of the contour
+        val circularArea = (diameter / 2.0).pow(2) * 3.141592
+        val areaError = abs(((circularArea - area) / area))
+
+        // Check if the perimeter is also circular enough
+        val perimeter = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
+        val circularity = 4 * Math.PI * area / (perimeter * perimeter)
+        val perimeterError = abs(1 - circularity)
+
+        if (areaError < 0.1 && perimeterError < 0.2 && area > 100) {
+            Log.d("Image", "Dots " + areaError.toString() + " " + perimeterError.toString())
+
+            val center = shrinkContour(contour, shrink)
+
+            val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
+            Imgproc.drawContours(mask, listOf(center), 0,
+                Scalar(255.0), Imgproc.FILLED)
+
+            val extractedData = Mat()
+            image.copyTo(extractedData, mask)
+
+            if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
+
+            val pair = Pair(center, Core.mean(extractedData))
+            candidates.add(pair)
+            i += 1
+        }
+    }
+
+    val sizeSorted = candidates
+        .map { it to Pair(it, Imgproc.contourArea(it.first)) }
+        .sortedByDescending { it.second.second }
+
+    val top = sizeSorted.take(4)
+    val areas = top.map { it.second.second }
+    val medianArea = areas.sorted()[areas.size / 2]
+
+    val tolerance = 0.2
+    val finalDots = sizeSorted.filter { (_, area) ->
+        abs(area.second - medianArea) / medianArea < tolerance
+    }.map { it.first }
+
+    if (log) {
+        i = 0
+        for (pair in finalDots) {
+            val contour = pair.first
+            val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
+            Imgproc.drawContours(mask, listOf(contour), 0,
+                Scalar(255.0), Imgproc.FILLED)
+
+            val extractedData = Mat()
+            image.copyTo(extractedData, mask)
+
+            saveMat(extractedData, "center " + i.toString() + ".png", context)
+            i += 1
+        }
+
+        saveMat(drawOrdering(image, finalDots), "orderingOriginal.png", context)
+    }
+
+    val indexed = assignGridIndices(finalDots)
+
+    // Sort row-major (top to bottom, left to right)
+    val sorted = indexed
+        .sortedWith(compareBy({ it.second.first }, { it.second.second }))
+        .map { it.first }
+
+    return sorted
 }
 
 
@@ -228,19 +421,26 @@ val expectedColors = listOf(
 
 // Perform the full preprocessing of the image
 // Could potentially return dot locations and values later
-fun preprocessImage(image: Mat, context: Context, log: Boolean = false): Mat {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Mat {
     val contours = findContours(image, context, log)
-    val shapes = findCalibrationSquares(image, contours, context, log)
 
+    val shapes = findCalibrationSquares(image, contours, context, log)
     val colors = extractCalibrationColors(shapes)
 
-    val balanced = rebalanceImage(image, colors, expectedColors)
+    val dots = findDots(image, contours, context, log)
+
+    saveMat(drawOrdering(image, dots), "orderingFinal.png", context)
+
+    var balanced = image
+    if (normalizationStrategy == "SVD") {
+        balanced = rebalanceImage(image, colors, expectedColors)
+    }
 
     return balanced
 }
 
 
-fun ingestImages(addresses: List<Uri>, context: Context): List<Mat?> {
+fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = true, normalizationStrategy: String = "SVD"): List<Mat?> {
     val images: MutableList<Mat?> = mutableListOf<Mat?>().toMutableList();
     for (uri in addresses) {
         val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
@@ -252,8 +452,8 @@ fun ingestImages(addresses: List<Uri>, context: Context): List<Mat?> {
         val mat = Mat()
         Utils.bitmapToMat(mutableBitmap, mat)
 
-        val preprocessed = preprocessImage(mat, context, log=true)
-        saveMat(preprocessed, "preprocessed.png", context)
+        val preprocessed = preprocessImage(mat, context, log, normalizationStrategy)
+        if (log) {saveMat(preprocessed, "preprocessed.png", context)}
 
         images += preprocessed
     }

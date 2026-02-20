@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -103,7 +104,7 @@ enum class AppDestinations(
     HOME("Home", Icons.Default.Home),
     GALLERY("Gallery", Icons.Default.Favorite),
     PROFILE("Profile", Icons.Default.AccountBox),
-    CAMERA("Camera", Icons.Default.Add)
+    CAMERA("Camera", Icons.Default.Camera)
 }
 
 @Composable

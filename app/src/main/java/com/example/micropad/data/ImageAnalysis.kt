@@ -260,17 +260,17 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Mat {
         val center = getCenter(contour)
 
         Imgproc.drawContours(output, listOf(contour), -1,
-            Scalar(0.0, 255.0, 0.0), 2)
+            Scalar(0.0, 0.0, 0.0, 255.0), 6)
 
         // Draw index number
         Imgproc.putText(
             output,
-            index.toString(),
-            center,
+            (index + 1).toString(),
+            Point(center.x - 14, center.y + 10),
             Imgproc.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            Scalar(0.0, 0.0, 255.0),
-            2
+            1.6,
+            Scalar(0.0, 0.0, 0.0, 255.0),
+            4
         )
     }
 
@@ -362,7 +362,10 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
 
             if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
 
-            val pair = Pair(center, Core.mean(extractedData))
+            // TODO: Use something better than the mean, some of the data
+            // is not well centered or has low coverage
+            val dataPoint = Core.mean(extractedData)
+            val pair = Pair(center, dataPoint)
             candidates.add(pair)
             i += 1
         }
@@ -421,7 +424,7 @@ val expectedColors = listOf(
 
 // Perform the full preprocessing of the image
 // Could potentially return dot locations and values later
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Mat {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Bitmap {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)
@@ -429,19 +432,23 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
 
     val dots = findDots(image, contours, context, log)
 
-    saveMat(drawOrdering(image, dots), "orderingFinal.png", context)
-
     var balanced = image
     if (normalizationStrategy == "SVD") {
         balanced = rebalanceImage(image, colors, expectedColors)
     }
 
-    return balanced
+    val orderingImage = drawOrdering(image, dots)
+    if (log) {saveMat(orderingImage, "orderingFinal.png", context)}
+
+    val bitmap = createBitmap(orderingImage.cols(), orderingImage.rows());
+    Utils.matToBitmap(orderingImage, bitmap)
+
+    return bitmap
 }
 
 
-fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = true, normalizationStrategy: String = "SVD"): List<Mat?> {
-    val images: MutableList<Mat?> = mutableListOf<Mat?>().toMutableList();
+fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "SVD"): List<Bitmap> {
+    val images: MutableList<Bitmap> = mutableListOf<Bitmap>().toMutableList()
     for (uri in addresses) {
         val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
         val bitmap = BitmapFactory.decodeStream(inputStream)
@@ -453,7 +460,6 @@ fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = true, no
         Utils.bitmapToMat(mutableBitmap, mat)
 
         val preprocessed = preprocessImage(mat, context, log, normalizationStrategy)
-        if (log) {saveMat(preprocessed, "preprocessed.png", context)}
 
         images += preprocessed
     }

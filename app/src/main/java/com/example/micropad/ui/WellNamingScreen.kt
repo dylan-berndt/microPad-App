@@ -38,15 +38,15 @@ fun stringToURIs(data: String): List<Uri> {
 @Composable
 fun WellNamingScreen(addresses: List<Uri>) {
     val context = LocalContext.current
-    val images = ingestImages(addresses, context)
+    val samples = ingestImages(addresses, context)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(images) { image ->
+        items(samples) { sample ->
             Image(
-                bitmap = image.asImageBitmap(),
+                bitmap = sample.ordering.asImageBitmap(),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxWidth()

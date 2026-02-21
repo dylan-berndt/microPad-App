@@ -159,7 +159,7 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
 
 
 // Extract the calibration colors from a calibration region
-fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): List<Scalar> {
+fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList<Scalar> {
     val colors = mutableListOf<Scalar>()
 
     for (shape in shapes) {
@@ -252,7 +252,7 @@ fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
 }
 
 
-fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Mat {
+fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Bitmap {
     val output = image.clone()
 
     for ((index, pair) in orderedDots.withIndex()) {
@@ -274,7 +274,10 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Mat {
         )
     }
 
-    return output
+    val bitmap = createBitmap(output.cols(), output.rows());
+    Utils.matToBitmap(output, bitmap)
+
+    return bitmap
 }
 
 
@@ -325,11 +328,57 @@ fun assignGridIndices(
 }
 
 
+fun extractContour(image: Mat, contour: MatOfPoint): Mat {
+    val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
+    Imgproc.drawContours(mask, listOf(contour), 0,
+        Scalar(255.0), Imgproc.FILLED)
+
+    val extractedData = Mat()
+    image.copyTo(extractedData, mask)
+
+    return extractedData
+}
+
+
+fun extractDyeColor(extractedMat: Mat): Scalar {
+    // Convert to HSV for better color filtering
+    val hsv = Mat()
+    Imgproc.cvtColor(extractedMat, hsv, Imgproc.COLOR_BGR2HSV)
+
+    // Create a mask that excludes white pixels and black (outside contour) pixels
+    // White in HSV: low saturation, high value
+    // Black (outside contour): near-zero value
+    val colorMask = Mat()
+    Core.inRange(
+        hsv,
+        Scalar(0.0, 15.0, 50.0),   // min: any hue, low saturation threshold, not too dark
+        Scalar(180.0, 255.0, 255.0), // max: full range
+        colorMask
+    )
+
+    // Also exclude near-white pixels (high value + low saturation)
+    val whiteMask = Mat()
+    Core.inRange(
+        hsv,
+        Scalar(0.0, 0.0, 200.0),   // high brightness
+        Scalar(180.0, 40.0, 255.0), // low saturation = white
+        whiteMask
+    )
+
+    // Subtract white mask from color mask
+    Core.subtract(colorMask, whiteMask, colorMask)
+
+    // Get mean color of remaining pixels in BGR
+    val meanColor = Core.mean(extractedMat, colorMask)
+    return meanColor
+}
+
+
 // Finds the donut shapes in the preprocessed image
 // Returns a List of all dots that were found, each element consisting of:
 // MatOfPoint: the dot contour, and Scalar: the extracted color value
 // Attempts to order dots from left to right, then top to bottom
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean, shrink: Float = 0.4f): List<Pair<MatOfPoint, Scalar>> {
+fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean, shrink: Float = 0.4f): MutableList<Pair<MatOfPoint, Scalar>> {
     val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
 
     var i = 0
@@ -352,13 +401,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
             Log.d("Image", "Dots " + areaError.toString() + " " + perimeterError.toString())
 
             val center = shrinkContour(contour, shrink)
-
-            val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
-            Imgproc.drawContours(mask, listOf(center), 0,
-                Scalar(255.0), Imgproc.FILLED)
-
-            val extractedData = Mat()
-            image.copyTo(extractedData, mask)
+            val extractedData = extractContour(image, center)
 
             if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
 
@@ -398,8 +441,6 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
             saveMat(extractedData, "center " + i.toString() + ".png", context)
             i += 1
         }
-
-        saveMat(drawOrdering(image, finalDots), "orderingOriginal.png", context)
     }
 
     val indexed = assignGridIndices(finalDots)
@@ -409,12 +450,12 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
         .sortedWith(compareBy({ it.second.first }, { it.second.second }))
         .map { it.first }
 
-    return sorted
+    return sorted.toMutableList()
 }
 
 
 // Colors used on dye sheet, arranged in BGR ordering
-val expectedColors = listOf(
+val expectedColors = mutableListOf(
     Scalar(0.0, 0.0, 0.0),       // Black
     Scalar(255.0, 255.0, 0.0),   // Cyan (B=255, G=255, R=0)
     Scalar(0.0, 255.0, 255.0),   // Yellow (B=0, G=255, R=255)
@@ -423,8 +464,7 @@ val expectedColors = listOf(
 
 
 // Perform the full preprocessing of the image
-// Could potentially return dot locations and values later
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Bitmap {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)
@@ -432,23 +472,40 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
 
     val dots = findDots(image, contours, context, log)
 
+    // Requires that control dot is in top left
+    val controlDot = extractDyeColor(extractContour(image, dots[0].first))
+
+    // TODO: Normalization modes: MinMax, Z-Score
     var balanced = image
-    if (normalizationStrategy == "SVD") {
+    if (normalizationStrategy == "Regression") {
         balanced = rebalanceImage(image, colors, expectedColors)
     }
+    else {
+        colors.add(0, controlDot)
+        expectedColors.add(0, Scalar(255.0, 255.0, 255.0))
+        if (normalizationStrategy == "MinMax") {
 
-    val orderingImage = drawOrdering(image, dots)
-    if (log) {saveMat(orderingImage, "orderingFinal.png", context)}
+        }
+        else if (normalizationStrategy == "Z-Score") {
 
-    val bitmap = createBitmap(orderingImage.cols(), orderingImage.rows());
-    Utils.matToBitmap(orderingImage, bitmap)
+        }
+    }
 
-    return bitmap
+    val dotColors = dots.map {
+        extractDyeColor(extractContour(balanced, it.first))
+    }
+
+    val orderingImage = drawOrdering(balanced, dots)
+    for (color in dotColors) {
+        Log.d("Image", "Color: $color")
+    }
+
+    return Sample(image, balanced, orderingImage, dots, dotColors)
 }
 
 
-fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "SVD"): List<Bitmap> {
-    val images: MutableList<Bitmap> = mutableListOf<Bitmap>().toMutableList()
+fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression"): List<Sample> {
+    val images: MutableList<Sample> = mutableListOf<Sample>().toMutableList()
     for (uri in addresses) {
         val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
         val bitmap = BitmapFactory.decodeStream(inputStream)

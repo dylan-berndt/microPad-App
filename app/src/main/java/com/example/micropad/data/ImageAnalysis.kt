@@ -11,6 +11,10 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 import java.io.InputStream
 import java.io.FileOutputStream
@@ -500,26 +504,43 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
         Log.d("Image", "Color: $color")
     }
 
-    return Sample(image, balanced, orderingImage, dots, dotColors)
+    return Sample(image, balanced, orderingImage, dots)
 }
 
+/**
+ * A function for taking in a list of image locations and returning a list of completely
+ * preprocessed images in the form of a list of Samples. This includes extracting the colors
+ * from each of the dye spots in each image
+ *
+ * @param addresses The Uris identifying the locations of all the images that we want
+ * to preprocess
+ * @param context The context of the Composable calling this function,
+ * obtained from LocalContext.current. This is only used for logging
+ *
+ * @param log Boolean indicating whether or not the function should save snapshots of each
+ * step in the preprocessing algorithm
+ * @param normalizationStrategy Identifies how the algorithm should normalize the image data.
+ * Options are:
+ *  Regression: Rebalances using a linear regression to perform a min-max normalization
+ *  on the whole RGB gamut
+ *  MinMax: Performs normalization by pulling the maximum and minimum observed colors to the
+ *  expected minimums and maximums separately for each channel
+ *  Z-Score:
+ *
+ * @return SampleDataset, a list of all the Samples obtained from the images
+ */
+suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression"): SampleDataset = coroutineScope {
+    val images = addresses.map { uri ->
+        async(Dispatchers.Default) {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+            val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val mat = Mat()
+            Utils.bitmapToMat(mutableBitmap, mat)
+            preprocessImage(mat, context, log, normalizationStrategy)
+        }
+    }.awaitAll()
 
-fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression"): List<Sample> {
-    val images: MutableList<Sample> = mutableListOf<Sample>().toMutableList()
-    for (uri in addresses) {
-        val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
-        val bitmap = BitmapFactory.decodeStream(inputStream)
-        inputStream?.close()
-
-        val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-
-        val mat = Mat()
-        Utils.bitmapToMat(mutableBitmap, mat)
-
-        val preprocessed = preprocessImage(mat, context, log, normalizationStrategy)
-
-        images += preprocessed
-    }
-
-    return images
+    SampleDataset(images.toMutableList())
 }

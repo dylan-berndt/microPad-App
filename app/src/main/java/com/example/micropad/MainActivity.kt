@@ -1,7 +1,5 @@
 package com.example.micropad
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -14,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Add
@@ -34,11 +31,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+import androidx.navigation.NavController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
+import com.example.micropad.ui.WellNamingScreen
+import com.example.micropad.ui.stringToURIs
 
 import org.opencv.android.OpenCVLoader
 
@@ -62,6 +66,23 @@ class MainActivity : ComponentActivity() {
 @PreviewScreenSizes
 @Composable
 fun MicroPadApp() {
+    val navController = rememberNavController()
+
+    NavHost(navController = navController, startDestination = "home") {
+        composable("home") {
+            FrontPage(navController)
+        }
+        composable("namingScreen/{uris}",
+            arguments = listOf(navArgument("uris") {type = NavType.StringType}))
+        { backStackEntry ->
+            val data = backStackEntry.arguments?.getString("uris") ?: ""
+            WellNamingScreen(stringToURIs(data))
+        }
+    }
+}
+
+@Composable
+fun FrontPage(navController: NavController) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(
@@ -87,8 +108,7 @@ fun MicroPadApp() {
                     name = "Android",
                     modifier = Modifier.padding(innerPadding)
                 )
-                AppDestinations.GALLERY -> GalleryPickerScreen()
-                AppDestinations.PROFILE -> GalleryPickerScreen()
+                AppDestinations.GALLERY -> GalleryPickerScreen(navController)
                 AppDestinations.CAMERA -> CameraScreen(onImageCapture = { uri ->
                     Log.d("MainActivity", "Image captured: $uri")
                 })
@@ -103,7 +123,6 @@ enum class AppDestinations(
 ) {
     HOME("Home", Icons.Default.Home),
     GALLERY("Gallery", Icons.Default.Favorite),
-    PROFILE("Profile", Icons.Default.AccountBox),
     CAMERA("Camera", Icons.Default.Add)
 }
 

@@ -10,6 +10,7 @@ kotlin = "2.0.21"
 composeBom = "2024.09.00"
 camerax = "1.5.3"
 runtime = "1.10.3"
+navigationCompose = "2.9.7"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,6 +34,7 @@ androidx-camera-camera-camera2 = { group = "androidx.camera", name = "camera-cam
 androidx-camera-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax"}
 androidx-camera-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax"}
 androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime", version.ref = "runtime" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
 
 [plugins]

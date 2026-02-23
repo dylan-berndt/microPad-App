@@ -409,9 +409,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
 
             if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
 
-            // TODO: Use something better than the mean, some of the data
-            // is not well centered or has low coverage
-            val dataPoint = Core.mean(extractedData)
+            val dataPoint = extractDyeColor(extractedData)
             val pair = Pair(center, dataPoint)
             candidates.add(pair)
             i += 1

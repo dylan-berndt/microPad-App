@@ -1,5 +1,6 @@
 package com.example.micropad.data
 
+import com.example.micropad.data.model.Roi
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import org.opencv.core.*
@@ -15,7 +16,6 @@ import android.util.Log
 import java.io.InputStream
 import java.io.FileOutputStream
 import java.io.File
-
 
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
     return try {
@@ -81,7 +81,7 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
 // Attempts to find the calibration rectangle in the image
 // Returns a pair consisting of the rectangle portion of the image and its bounding box
 fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): MutableList<Pair<Mat, Point>> {
-    var shapes: MutableList<Pair<Mat, Point>> = mutableListOf<Pair<Mat, Point>>()
+    val shapes: MutableList<Pair<Mat, Point>> = mutableListOf<Pair<Mat, Point>>()
 
     // Check each contour, one of them should be a rectangle
     var i = 0
@@ -209,11 +209,42 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
 // Finds the donut shapes in the preprocessed image
 // Returns a List of all dots that were found, each element consisting of:
 // List<Point>: the bounding box, and Scalar: the extracted color value
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): List<Pair<List<Point>, Scalar>>? {
-    // TODO: Check for area, color, and number of holes in each contour to find dots
-    // TODO: Either rotate images or determine an ordering scheme that is consistent
+fun findDots(
+    image: Mat,
+    contours: ArrayList<MatOfPoint>,
+    context: Context,
+    log: Boolean
+): List<Roi> {
 
-    return null
+    val roiList = mutableListOf<Roi>()
+
+    contours.forEachIndexed { index, contour ->
+
+        val area = Imgproc.contourArea(contour)
+
+        // Basic filter to remove tiny noise
+        if (area > 200) {
+
+            val rect = Imgproc.boundingRect(contour)
+            val roiMat = Mat(image, rect)
+
+            val meanColor = Core.mean(roiMat)
+
+            val roi = Roi(
+                id = index,
+                region = roiMat,
+                extractedColor = meanColor
+            )
+
+            roiList.add(roi)
+
+            if (log) {
+                saveMat(roiMat, "roi_$index.png", context)
+            }
+        }
+    }
+
+    return roiList
 }
 
 
@@ -228,7 +259,12 @@ val expectedColors = listOf(
 
 // Perform the full preprocessing of the image
 // Could potentially return dot locations and values later
-fun preprocessImage(image: Mat, context: Context, log: Boolean = false): Mat {
+fun preprocessImage(
+    image: Mat,
+    context: Context,
+    log: Boolean = false
+): Pair<Mat, List<Roi>> {
+
     val contours = findContours(image, context, log)
     val shapes = findCalibrationSquares(image, contours, context, log)
 
@@ -236,9 +272,10 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean = false): Mat {
 
     val balanced = rebalanceImage(image, colors, expectedColors)
 
-    return balanced
-}
+    val roiList = findDots(balanced, contours, context, log)
 
+    return Pair(balanced, roiList)
+}
 
 fun ingestImages(addresses: List<Uri>, context: Context): List<Mat?> {
     val images: MutableList<Mat?> = mutableListOf<Mat?>().toMutableList();
@@ -252,10 +289,10 @@ fun ingestImages(addresses: List<Uri>, context: Context): List<Mat?> {
         val mat = Mat()
         Utils.bitmapToMat(mutableBitmap, mat)
 
-        val preprocessed = preprocessImage(mat, context, log=true)
-        saveMat(preprocessed, "preprocessed.png", context)
+        val (balancedMat, roiList) = preprocessImage(mat, context, log = false)
+        saveMat(balancedMat, "preprocessed.png", context)
 
-        images += preprocessed
+        images += balancedMat
     }
 
     return images

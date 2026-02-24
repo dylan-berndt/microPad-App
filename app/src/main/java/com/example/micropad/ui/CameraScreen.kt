@@ -50,7 +50,7 @@ import java.io.File
  * @param onImageCapture A callback invoked when the user confirms they want to use the captured image.
  */
 @Composable
-fun CameraScreen(onImageCapture: (Uri) -> Unit) {
+fun CameraScreen(onImageCapture: (Uri) -> Unit, onUriCaptured: Function<Unit>) {
     val context = LocalContext.current
     // We need the activity to check for permission rationale.
     val activity = context as? Activity

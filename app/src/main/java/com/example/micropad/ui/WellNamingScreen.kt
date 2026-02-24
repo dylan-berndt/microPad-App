@@ -60,7 +60,7 @@ class ImageViewModel : ViewModel() {
     fun ingest(uris: List<Uri>, context: Context) {
         viewModelScope.launch {
             isLoading = true
-            dataset = ingestImages(uris, context)
+            dataset = ingestImages(uris, context, log=true)
             isLoading = false
         }
     }

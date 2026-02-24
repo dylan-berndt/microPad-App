@@ -23,8 +23,11 @@ import java.io.File
 import kotlin.math.pow
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
@@ -56,7 +59,7 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
     Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
 
     val blurred = Mat()
-    Imgproc.GaussianBlur(gray, blurred, Size(7.0, 7.0), 0.0)
+    Imgproc.GaussianBlur(gray, blurred, Size(9.0, 9.0), 0.0)
 
     if (log) {
         saveMat(blurred, "blurred.png", context)
@@ -102,61 +105,167 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
 }
 
 
+/**
+ * Detects the white card in the image, applies a perspective warp,
+ * and returns a flattened, top-down crop of just the card.
+ * Returns null if no card candidate is found.
+ */
+fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
+    val hsv = Mat()
+    Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
+
+    val whiteMask = Mat()
+    Core.inRange(
+        hsv,
+        Scalar(0.0, 0.0, 180.0),    // min: any hue, low saturation, bright
+        Scalar(180.0, 40.0, 255.0),  // max: any hue, low saturation, max brightness
+        whiteMask
+    )
+
+    if (log) saveMat(whiteMask, "card_white_mask.png", context)
+
+    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+    val closed = Mat()
+    Imgproc.morphologyEx(whiteMask, closed, Imgproc.MORPH_CLOSE, kernel)
+
+    if (log) saveMat(closed, "card_thresh.png", context)
+
+    val contours = ArrayList<MatOfPoint>()
+    val hierarchy = Mat()
+    Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+    // Pick largest contour that covers at least 10% of the frame
+    val best = contours
+        .filter { Imgproc.contourArea(it) > image.total() * 0.10 }
+        .maxByOrNull { Imgproc.contourArea(it) }
+
+    if (best == null) {
+        Log.w("Image", "findAndWarpCard: no card contour found")
+        return null
+    }
+
+    // Use bounding rect instead of trying to find exact corners
+    val rect = Imgproc.boundingRect(best)
+    val cropped = Mat(image, rect)
+
+    if (log) saveMat(cropped, "card_warped.png", context)
+
+    hsv.release(); whiteMask.release()
+    closed.release(); hierarchy.release()
+
+    return cropped
+}
+
+
 // Attempts to find the calibration rectangle in the image
 // Returns a pair consisting of the rectangle portion of the image and its bounding box
 fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): MutableList<Pair<Mat, Point>> {
-    var shapes: MutableList<Pair<Mat, Point>> = mutableListOf<Pair<Mat, Point>>()
 
-    // Check each contour, one of them should be a rectangle
-    var i = 0
+    // --- Step 1: collect all square-ish candidates ---
+    data class Candidate(val region: Mat, val center: Point, val area: Double)
+    val candidates = mutableListOf<Candidate>()
+
     for (contour in contours) {
+        val area = Imgproc.contourArea(contour)
+        if (area < 50) continue
+
         val contour2f = MatOfPoint2f(*contour.toArray())
         val peri = Imgproc.arcLength(contour2f, true)
         val approx = MatOfPoint2f()
-        // Attempt to create a rough polygon from the contour
         Imgproc.approxPolyDP(contour2f, approx, 0.04 * peri, true)
 
-        if (approx.total() == 4L) {
-            val area = Imgproc.contourArea(contour)
+        if (approx.total() !in 4L..6L) continue
 
-            // Remove any small shapes
-            if (area > 100) {
-                val corners = approx.toArray().toList()
-                val rect = Imgproc.boundingRect(contour)
+        val rect = Imgproc.boundingRect(contour)
+        val ratio = rect.width.toDouble() / rect.height.toDouble()
+        if (ratio < 0.7 || ratio > 1.3) continue
 
-                val ratio = rect.width.toDouble() / rect.height.toDouble()
-                // Make sure we're dealing with squares
-                if (0.9 < ratio && ratio < 1.1) {
-                    val calibrationRegion = Mat(image, rect)
+        val m = Imgproc.moments(contour)
+        if (m.m00 == 0.0) continue
+        val center = Point(m.m10 / m.m00, m.m01 / m.m00)
 
-                    Log.d("Image", "Ratio DD " + ratio.toString() + " " + i.toString())
+        candidates.add(Candidate(Mat(image, rect), center, area))
+    }
 
-                    val centroid = Point(
-                        (corners[0].x + corners[1].x) / 2,
-                        (corners[0].y + corners[1].y) / 2
-                    )
+    if (candidates.size < 4) {
+        Log.w("Image", "Not enough square candidates: ${candidates.size}")
+        return mutableListOf()
+    }
 
-                    val pair = Pair(calibrationRegion, centroid)
-                    shapes.add(pair)
-                }
-                else {
-                    Log.d("Image", "Ratio " + ratio.toString())
-                }
-            }
+    // --- Step 2: find the median area and filter outliers ---
+    val sortedAreas = candidates.map { it.area }.sorted()
+    val medianArea = sortedAreas[sortedAreas.size / 2]
+    val areaFiltered = candidates.filter { abs(it.area - medianArea) / medianArea < 0.5 }
 
-            i += 1
+    if (areaFiltered.size < 4) {
+        Log.w("Image", "Not enough candidates after area filter: ${areaFiltered.size}")
+        return mutableListOf()
+    }
+
+    // --- Step 3: among all combinations of 4, pick the most collinear group ---
+    // Collinearity score: fit a line through 4 points, sum of squared residuals
+    fun collinearityScore(pts: List<Point>): Double {
+        // Use PCA / linear regression on the 4 centers
+        val cx = pts.map { it.x }.average()
+        val cy = pts.map { it.y }.average()
+
+        var sxx = 0.0; var sxy = 0.0; var syy = 0.0
+        for (p in pts) {
+            val dx = p.x - cx; val dy = p.y - cy
+            sxx += dx * dx; sxy += dx * dy; syy += dy * dy
+        }
+
+        // Direction of best-fit line via angle of covariance matrix
+        val angle = 0.5 * atan2(2 * sxy, sxx - syy)
+        val nx = -sin(angle); val ny = cos(angle) // normal to the line
+
+        // Sum of squared perpendicular distances
+        return pts.sumOf { p ->
+            val dx = p.x - cx; val dy = p.y - cy
+            (dx * nx + dy * ny).pow(2)
         }
     }
 
-    shapes.sortBy { it.second.x }
+    // Also check that the 4 points are roughly evenly spaced
+    fun spacingScore(pts: List<Point>): Double {
+        val cx = pts.map { it.x }.average()
+        val cy = pts.map { it.y }.average()
+        val angle = atan2(pts.last().y - pts.first().y, pts.last().x - pts.first().x)
+
+        // Project onto the line direction and check spacing variance
+        val projections = pts.map { p ->
+            (p.x - cx) * cos(angle) + (p.y - cy) * sin(angle)
+        }.sorted()
+
+        val gaps = projections.zipWithNext { a, b -> b - a }
+        val meanGap = gaps.average()
+        return gaps.sumOf { (it - meanGap).pow(2) } / meanGap.pow(2)
+    }
+
+    var bestScore = Double.MAX_VALUE
+    var bestGroup = areaFiltered.take(4)
+
+    // n choose 4 — only feasible if candidates stay small (they should after area filter)
+    val n = areaFiltered.size
+    for (i in 0 until n) for (j in i+1 until n) for (k in j+1 until n) for (l in k+1 until n) {
+        val group = listOf(areaFiltered[i], areaFiltered[j], areaFiltered[k], areaFiltered[l])
+        val pts = group.map { it.center }
+        val score = collinearityScore(pts) + spacingScore(pts) * medianArea
+        if (score < bestScore) {
+            bestScore = score
+            bestGroup = group
+        }
+    }
+
+    val shapes = bestGroup
+        .sortedBy { it.center.x}
+        .map { Pair(it.region, it.center) }
+        .toMutableList()
+
     if (log) {
-        i = 0
-        for (shape in shapes) {
-            saveMat(shape.first, "calibrationArea" + i.toString() + ".png", context)
-            i += 1
-        }
+        shapes.forEachIndexed { i, shape -> saveMat(shape.first, "calibrationArea$i.png", context) }
     }
-    Log.d("Image", "Shapes " + shapes.size.toString())
+    Log.d("Image", "Shapes found: ${shapes.size}, best score: $bestScore")
 
     return shapes
 }
@@ -263,22 +372,35 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Bitma
         val contour = pair.first
         val center = getCenter(contour)
 
-        Imgproc.drawContours(output, listOf(contour), -1,
-            Scalar(0.0, 0.0, 0.0, 255.0), 6)
+        // Estimate dot radius from contour area
+        val area = Imgproc.contourArea(contour)
+        val radius = sqrt(area / Math.PI)
 
-        // Draw index number
-        Imgproc.putText(
-            output,
-            (index + 1).toString(),
-            Point(center.x - 14, center.y + 10),
-            Imgproc.FONT_HERSHEY_SIMPLEX,
-            1.6,
-            Scalar(0.0, 0.0, 0.0, 255.0),
-            4
+        // Scale font so text fills roughly half the dot diameter
+        val fontScale = radius / 20.0
+        val thickness = (fontScale * 3).toInt().coerceAtLeast(1)
+        val outlineThickness = thickness + 4
+
+        val text = (index + 1).toString()
+
+        // Measure text so we can center it
+        val baseline = IntArray(1)
+        val textSize = Imgproc.getTextSize(text, Imgproc.FONT_HERSHEY_SIMPLEX, fontScale, thickness, baseline)
+        val textOrigin = Point(
+            center.x - textSize.width / 2.0,
+            center.y + textSize.height / 2.0
         )
+
+        Imgproc.drawContours(output, listOf(contour), -1, Scalar(0.0, 0.0, 0.0, 255.0), 6)
+
+        // White outline drawn first, then black text on top
+        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
+            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
+        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
+            fontScale, Scalar(0.0, 0.0, 0.0, 255.0), thickness)
     }
 
-    val bitmap = createBitmap(output.cols(), output.rows());
+    val bitmap = createBitmap(output.cols(), output.rows())
     Utils.matToBitmap(output, bitmap)
 
     return bitmap
@@ -401,7 +523,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
         val circularity = 4 * Math.PI * area / (perimeter * perimeter)
         val perimeterError = abs(1 - circularity)
 
-        if (areaError < 0.1 && perimeterError < 0.2 && area > 100) {
+        if (areaError < 0.3 && perimeterError < 0.4 && area > 100) {
             Log.d("Image", "Dots " + areaError.toString() + " " + perimeterError.toString())
 
             val center = shrinkContour(contour, shrink)
@@ -466,7 +588,7 @@ val expectedColors = mutableListOf(
 
 
 // Perform the full preprocessing of the image
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {{}
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)
@@ -536,7 +658,14 @@ suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = 
             val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
             val mat = Mat()
             Utils.bitmapToMat(mutableBitmap, mat)
-            preprocessImage(mat, context, log, normalizationStrategy)
+
+            val image = Mat()
+            val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
+            Imgproc.resize(mat, image,  Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
+
+            val cropped = findAndWarpCard(image, context, log) ?: image
+
+            preprocessImage(cropped, context, log, normalizationStrategy)
         }
     }.awaitAll()
 

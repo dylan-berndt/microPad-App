@@ -6,6 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,10 +19,11 @@ import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.Sample
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.ingestImages
-import com.example.coloranalysisapp.data.DyeLabels
 import kotlinx.coroutines.launch
 
 // Convert URI list to String
@@ -36,78 +39,34 @@ fun stringToURIs(data: String): List<Uri> {
     } else emptyList()
 }
 
-// ViewModel to handle image dataset
-class ImageViewModel : ViewModel() {
-    // Current dataset property
-    var dataset by mutableStateOf<SampleDataset?>(null)
-        private set
-
-    // Current loading state
-    var isLoading by mutableStateOf(false)
-        private set
-
-    // Your ingest function
-    fun ingest(uris: List<Uri>, context: Context) {
-        viewModelScope.launch {
-            isLoading = true
-            dataset = ingestImages(uris, context, log=true)
-            isLoading = false
-        }
-    }
-
-    fun allSamplesValid(): Boolean {
-        // Checks all samples in the dataset
-        return dataset?.samples?.all { it.validateLabels() } ?: false
-    }
-}
-
-// Composable to display ROIs 2 per row
 @Composable
-fun WellNamingGrid(sample: Sample) {
-    val numberOfDots = sample.rgb.size
+fun WellNamingGrid(dataset: SampleDataset) {
+    val numberOfDots = dataset.samples[0].rgb.size
+    val scrollState = rememberScrollState()
 
-    for (i in 0 until numberOfDots step 2) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            for (j in i until (i + 2).coerceAtMost(numberOfDots)) {
-                Column {
-                    Text(text = "ROI ${j + 1}")
+    var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
 
-                    var expanded by remember { mutableStateOf(false) }
-                    val currentLabel = sample.names[j]
+    Column (modifier = Modifier.verticalScroll(scrollState).fillMaxWidth()) {
+        for (i in 0 until numberOfDots) {
+            Box {
+                TextField(
+                    value = texts[i],
+                    onValueChange = { dataset.nameWell(i, it); texts[i] = it },
+                    label = { Text(text = "ROI ${i + 1}") },
+                    placeholder = { Text("Enter a Label") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
 
-                    Box {
-                        Button(onClick = { expanded = true }) {
-                            Text(if (currentLabel.isBlank()) "Select Label" else currentLabel)
-                        }
-
-                        DropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            DyeLabels.predefinedLabels.forEach { label ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        val success = sample.reassignLabel(j, label)
-                                        if (success) expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 // Main composable for Well Naming screen
 @Composable
-fun WellNamingScreen(addresses: List<Uri>, viewModel: ImageViewModel = viewModel()) {
+fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
 
     LaunchedEffect(addresses) {
@@ -123,12 +82,13 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: ImageViewModel = viewModel
             CircularProgressIndicator()
         }
     } else {
-        viewModel.dataset?.let { dataset ->
+        viewModel.newDataset?.let { dataset ->
             Column(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // TODO: Implement reordering in the case ROI are out of order
                     items(dataset.samples) { sample ->
                         if (sample.ordering != null) {
                             Column(
@@ -143,20 +103,17 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: ImageViewModel = viewModel
                                         .fillMaxWidth()
                                         .height(200.dp)
                                 )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                WellNamingGrid(sample)
                             }
                         }
                     }
                 }
 
+                WellNamingGrid(dataset)
+
                 // NEXT BUTTON
                 Button(
                     onClick = {
-                        // Navigate or proceed with analysis
-                        println("All labels valid! Proceeding...")
+                        navController.navigate("import")
                     },
                     enabled = viewModel.allSamplesValid(),
                     modifier = Modifier

@@ -9,7 +9,13 @@ import org.opencv.core.Scalar
 import com.example.micropad.data.Sample
 import android.content.Context
 import android.net.Uri
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 
 
 /**
@@ -51,23 +57,25 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
         names[index] = newLabel
         return true
     }
-        // Function to reorder the chosen dots in an image
-        // The user should be able to reorder the dots in an image in the case they
-        // are ordered incorrectly
-        fun reorder(from: Int, to: Int) {
-            Collections.swap(dots, from, to)
-            Collections.swap(names, from, to)
-            Collections.swap(rgb, from, to)
-            Collections.swap(greyscale, from, to)
 
-            if (balanced != null) {
-                // ordering = drawOrdering(balanced, dots) // Uncomment if drawOrdering exists
-            }
+    // Function to reorder the chosen dots in an image
+    // The user should be able to reorder the dots in an image in the case they
+    // are ordered incorrectly
+    fun reorder(from: Int, to: Int) {
+        Collections.swap(dots, from, to)
+        Collections.swap(names, from, to)
+        Collections.swap(rgb, from, to)
+        Collections.swap(greyscale, from, to)
+
+        if (balanced != null) {
+            // ordering = drawOrdering(balanced, dots) // Uncomment if drawOrdering exists
         }
     }
+}
 
-    // TODO: Data validation: Check that all images have same number of dots and allow
-    // for retaking of images
+
+// TODO: Data validation: Check that all images have same number of dots and allow
+// for retaking of images
 
 
 /**
@@ -76,10 +84,13 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
  * @property samples A list of samples compiled in one place, to be used for classification
  */
 class SampleDataset(val samples: MutableList<Sample>) {
-    fun nameWell(index: Int, name: String) {
+    fun nameWell(index: Int, name: String): Boolean {
+        var worked = true
         for (sample in samples) {
-            sample.names[index] = name
+            worked = worked && sample.reassignLabel(index, name)
         }
+
+        return worked
     }
 
     fun reorderSample(sampleID: Int, from: Int, to: Int) {
@@ -211,5 +222,35 @@ class SampleDataset(val samples: MutableList<Sample>) {
             sample.names.addAll(newNames)
         }
         return newData
+    }
+}
+
+
+// ViewModel to handle image datasets and pass them around the different screens
+class DatasetModel : ViewModel() {
+    // Current dataset property
+    var newDataset by mutableStateOf<SampleDataset?>(null)
+        private set
+
+    // Reference dataset property
+    var referenceDataset by mutableStateOf<SampleDataset?>(null)
+        private set
+
+    // Current loading state
+    var isLoading by mutableStateOf(false)
+        private set
+
+    // Your ingest function
+    fun ingest(uris: List<Uri>, context: Context) {
+        viewModelScope.launch {
+            isLoading = true
+            newDataset = ingestImages(uris, context, log=true)
+            isLoading = false
+        }
+    }
+
+    fun allSamplesValid(): Boolean {
+        // Checks all samples in the dataset
+        return newDataset?.samples?.all { it.validateLabels() } ?: false
     }
 }

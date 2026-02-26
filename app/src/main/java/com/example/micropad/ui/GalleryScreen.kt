@@ -13,11 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.example.micropad.data.ingestImages
 
 @Composable
-fun GalleryPickerScreen() {
+fun GalleryPickerScreen(navController: NavController) {
     val context = LocalContext.current
 
     // 1. STATE: Store the URI of the selected image
@@ -27,24 +28,32 @@ fun GalleryPickerScreen() {
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems=50)
     ) { uris ->
-        ingestImages(uris, context)
         selectedImageUris = uris  // Update the state when the user picks an image
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            // 3. BOTTOM BUTTON: Place the button at the Scaffold's bottom bar
-            Button(
-                onClick = {
-                    // Launch the gallery photo picker
-                    photoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
-                },
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
-            ) {
-                Text("Select Images")
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 3. BOTTOM BUTTON: Place the button at the Scaffold's bottom bar
+                Button(
+                    onClick = {
+                        // Launch the gallery photo picker
+                        photoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(16.dp)
+                ) {
+                    Text("Select Images")
+                }
+                if (selectedImageUris.isNotEmpty()) {
+                    val uriString = urisToString(selectedImageUris)
+                    Button(
+                        onClick = {navController.navigate("namingScreen/$uriString")},
+                        modifier = Modifier.fillMaxWidth().padding(16.dp)
+                    ) { Text("Next Step") }
+                }
             }
         }
     ) { innerPadding ->

@@ -39,6 +39,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
+import com.example.micropad.data.CsvExportButton
 import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
@@ -149,6 +150,20 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                 val isValid = CsvParser.parseAndValidate(
                     context.contentResolver,
                     uri
+                )
+
+                resultMessage = if (isValid) {
+                    "✅ CSV schema is valid"
+                } else {
+                    "❌ Invalid CSV schema"
+                }
+            }
+        }
+
+        CsvExportButton { uri ->
+            if (uri != null) {
+                val isValid = CsvParser.parseAndValidate(
+                    context.contentResolver, uri
                 )
 
                 resultMessage = if (isValid) {

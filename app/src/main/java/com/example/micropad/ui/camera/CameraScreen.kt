@@ -1,10 +1,13 @@
-// Integrating camera functionality
-package com.example.micropad.ui
+package com.example.micropad.ui.camera
 
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.graphics.Rect
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,6 +46,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import java.io.File
+import java.io.FileOutputStream
 
 /**
  * A screen that handles camera permission and displays the camera preview.
@@ -68,7 +72,7 @@ fun CameraScreen(onImageCapture: (Uri) -> Unit) {
     // Launcher for requesting camera permission.
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
+        onResult = { isGranted: Boolean ->
             hasCameraPermission = isGranted
         }
     )
@@ -89,7 +93,11 @@ fun CameraScreen(onImageCapture: (Uri) -> Unit) {
                 onRequestPermission = {
                     // If the user has permanently denied the permission, open app settings.
                     // Otherwise, launch the permission request again.
-                    if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA)) {
+                    if (activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(
+                            activity,
+                            Manifest.permission.CAMERA
+                        )
+                    ) {
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                         intent.data = Uri.fromParts("package", context.packageName, null)
                         context.startActivity(intent)
@@ -132,8 +140,10 @@ private fun CameraContent(onImageCapture: (Uri) -> Unit) {
     if (capturedImageUri == null) {
         CameraPreview(
             controller = cameraController,
-            onCapture = { uri ->
-                capturedImageUri = uri
+            onCapture = { uri, cropRect ->
+                // When an image is captured, crop it and update the state
+                val croppedUri = cropImage(uri, cropRect, context)
+                capturedImageUri = croppedUri
             }
         )
     } else {
@@ -176,25 +186,37 @@ private fun PermissionRationaleScreen(onRequestPermission: () -> Unit) {
  * A composable that displays the camera preview and a capture button.
  *
  * @param controller The camera controller instance.
- * @param onCapture A callback invoked with the URI of the captured image.
+ * @param onCapture A callback invoked with the URI of the captured image and the bounding box.
  */
 @Composable
 fun CameraPreview(
     controller: LifecycleCameraController,
-    onCapture: (Uri) -> Unit
+    onCapture: (Uri, Rect) -> Unit
 ) {
     val context = LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
+        val screenWidth = context.resources.displayMetrics.widthPixels
+        val screenHeight = context.resources.displayMetrics.heightPixels
+
+        val boxWidth = screenWidth * 0.9f
+        val boxHeight = screenHeight * 0.6f
+        val startX = (screenWidth - boxWidth) / 2f
+        val startY = (screenHeight - boxHeight) / 2f
+        val boundingBox = Rect(startX.toInt(), startY.toInt(), (startX + boxWidth).toInt(), (startY + boxHeight).toInt())
+
         // Display the camera preview feed.
         AndroidView(
             factory = {
                 PreviewView(it).apply {
                     this.controller = controller
+                    this.scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        BoundingBoxOverlay()
 
         // Capture button.
         Button(
@@ -216,7 +238,7 @@ fun CameraPreview(
                         override fun onImageSaved(
                             outputFileResults: ImageCapture.OutputFileResults
                         ) {
-                            onCapture(Uri.fromFile(photoFile))
+                            onCapture(Uri.fromFile(photoFile), boundingBox)
                         }
 
                         override fun onError(exception: ImageCaptureException) {
@@ -273,4 +295,56 @@ fun ImagePreviewScreen(
             }
         }
     }
+}
+
+/**
+ * Crops the image from the given URI to the specified bounding box.
+ *
+ * @param uri The URI of the image to crop.
+ * @param cropRect The rectangle to crop to.
+ * @param context The application context.
+ * @return The URI of the cropped image.
+ */
+private fun cropImage(uri: Uri, cropRect: Rect, context: android.content.Context): Uri {
+    val inputStream = context.contentResolver.openInputStream(uri)
+    val originalBitmap = BitmapFactory.decodeStream(inputStream)
+
+    // Create a matrix for the rotation
+    val matrix = Matrix()
+    matrix.postRotate(90f)
+
+    // Rotate the bitmap
+    val rotatedBitmap = Bitmap.createBitmap(
+        originalBitmap,
+        0,
+        0,
+        originalBitmap.width,
+        originalBitmap.height,
+        matrix,
+        true
+    )
+
+    // Adjust the cropRect to the rotated image
+    val adjustedCropRect = Rect(
+        (cropRect.left.toFloat() / rotatedBitmap.width * originalBitmap.width).toInt(),
+        (cropRect.top.toFloat() / rotatedBitmap.height * originalBitmap.height).toInt(),
+        (cropRect.right.toFloat() / rotatedBitmap.width * originalBitmap.width).toInt(),
+        (cropRect.bottom.toFloat() / rotatedBitmap.height * originalBitmap.height).toInt()
+    )
+
+    val croppedBitmap = Bitmap.createBitmap(
+        rotatedBitmap,
+        adjustedCropRect.left,
+        adjustedCropRect.top,
+        adjustedCropRect.width(),
+        adjustedCropRect.height()
+    )
+
+    val croppedFile = File(context.cacheDir, "cropped_${System.currentTimeMillis()}.jpg")
+    val outputStream = FileOutputStream(croppedFile)
+    croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+    outputStream.flush()
+    outputStream.close()
+
+    return Uri.fromFile(croppedFile)
 }

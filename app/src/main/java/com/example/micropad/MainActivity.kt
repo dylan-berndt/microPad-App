@@ -39,7 +39,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
-import com.example.micropad.ui.CameraScreen
+import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.WellNamingScreen

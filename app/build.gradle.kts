@@ -41,8 +41,6 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.activity)
-    implementation(libs.androidx.activity.ktx)
 
     // Compose BOM & UI
     implementation(platform(libs.androidx.compose.bom))
@@ -54,14 +52,16 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
 
-    // Icons
-    implementation(libs.androidx.material.icons.core)
-    implementation(libs.androidx.compose.material.icons.extended)
 
     // Coil & OpenCV
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
-    implementation(libs.opencv)
+    val activity_version = ""
+    implementation("androidx.activity:activity:$activity_version")
+    implementation("androidx.activity:activity-ktx:$activity_version")
+
+    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+
+    implementation("org.opencv:opencv:4.9.0")
 
     // Camera
     implementation(libs.androidx.camera.core)

@@ -2,10 +2,16 @@ package com.example.micropad.ui.camera
 
 import android.Manifest
 import android.app.Activity
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
@@ -242,7 +248,9 @@ fun ImagePreviewScreen(
     onRetake: () -> Unit,
     onUsePhoto: (Uri) -> Unit
 ) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize()) {
+        // Display the captured image using Coil's AsyncImage.
         AsyncImage(
             model = imageUri,
             contentDescription = "Captured Image Preview",
@@ -250,20 +258,65 @@ fun ImagePreviewScreen(
             contentScale = ContentScale.Fit
         )
 
+        // Buttons for user actions.
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(24.dp)
+                .padding(24.dp),
+            horizontalArrangement = Arrangement.Center
         ) {
+
+            Button(onClick = { onUsePhoto(imageUri) }) {
+                Text("Use")
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
             Button(onClick = onRetake) {
                 Text("Retake")
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            Button(onClick = { onUsePhoto(imageUri) }) {
-                Text("Use Photo")
+            Button(onClick = { saveImageToGallery(context, imageUri) }) {
+                Text("Save to Gallery")
             }
+
         }
+    }
+}
+
+private fun saveImageToGallery(context: Context, uri: Uri) {
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/microPad")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+    }
+
+    val resolver = context.contentResolver
+    val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+
+    imageUri?.let { targetUri ->
+        try {
+            resolver.openOutputStream(targetUri).use { outputStream ->
+                context.contentResolver.openInputStream(uri).use { inputStream ->
+                    inputStream?.copyTo(outputStream!!)
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(targetUri, contentValues, null, null)
+            }
+            Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            resolver.delete(targetUri, null, null)
+            Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
+        }
+    } ?: run {
+        Toast.makeText(context, "Failed to create gallery entry", Toast.LENGTH_SHORT).show()
     }
 }

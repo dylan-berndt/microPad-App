@@ -14,6 +14,9 @@ import java.io.FileWriter
 import java.io.IOException
 
 
+/**
+ * Provide a UI button to launch a file picker.
+ */
 @Composable
 fun CsvExportButton(dataRow: String) {
     val context = LocalContext.current
@@ -30,6 +33,9 @@ fun CsvExportButton(dataRow: String) {
     }
 }
 
+/**
+ * Write dataRow to filePath.
+ */
 fun writeToCsv(dataRow: String, filePath: Uri, context: Context) {
     try {
         context.contentResolver.openOutputStream(filePath)?.use { outputStream ->

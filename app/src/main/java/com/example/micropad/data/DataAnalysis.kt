@@ -9,6 +9,7 @@ import org.opencv.core.Scalar
 import com.example.micropad.data.Sample
 import android.content.Context
 import android.net.Uri
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 
 /**
@@ -143,25 +145,12 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
-    fun toCSV(uri: Uri, context: Context) {
-        context.contentResolver.openOutputStream(uri)?.bufferedWriter().use { writer ->
-            if (writer != null) {
-                for (sample in samples) {
-                    // Flatten RGB values: R,G,B,R,G,B,...
-                    val rgbStrings =
-                        sample.rgb.flatMap { listOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
-                            .joinToString(",")
-
-                    // Names as comma-separated
-                    val nameStrings = sample.names.joinToString(",")
-
-                    // Combine RGB and names
-                    val line = "$rgbStrings,$nameStrings"
-                    writer.write(line)
-                    writer.newLine()
-                }
-            }
-        }
+    @Composable
+    fun ToCSV(uri: Uri, context: Context) {
+        CsvExportButton(samples.joinToString(separator=",") { sample ->
+            sample.names.joinToString(separator=",") + "," +
+                    sample.rgb.joinToString(separator=",")
+        })
     }
 
     fun classify(
@@ -196,9 +185,9 @@ class SampleDataset(val samples: MutableList<Sample>) {
 
                         "Manhattan" -> {
                             if (mode == "RGB") {
-                                val dr = kotlin.math.abs(dotColor.`val`[0] - refColor.`val`[0])
-                                val dg = kotlin.math.abs(dotColor.`val`[1] - refColor.`val`[1])
-                                val db = kotlin.math.abs(dotColor.`val`[2] - refColor.`val`[2])
+                                val dr = abs(dotColor.`val`[0] - refColor.`val`[0])
+                                val dg = abs(dotColor.`val`[1] - refColor.`val`[1])
+                                val db = abs(dotColor.`val`[2] - refColor.`val`[2])
                                 dr + dg + db
                             } else {
                                 val grayDot = 0.299 * dotColor.`val`[0] +
@@ -207,7 +196,7 @@ class SampleDataset(val samples: MutableList<Sample>) {
                                 val grayRef = 0.299 * refColor.`val`[0] +
                                         0.587 * refColor.`val`[1] +
                                         0.114 * refColor.`val`[2]
-                                kotlin.math.abs(grayDot - grayRef)
+                                abs(grayDot - grayRef)
                             }
                         }
 

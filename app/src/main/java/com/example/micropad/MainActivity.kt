@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
@@ -48,6 +49,7 @@ import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.ingestImages
 import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.data.CsvExportButton
 import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
@@ -148,7 +150,7 @@ enum class AppDestinations(
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
 
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     var resultMessage by remember { mutableStateOf("") }
 
     Column(
@@ -167,6 +169,20 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
                 val isValid = CsvParser.parseAndValidate(
                     context.contentResolver,
                     uri
+                )
+
+                resultMessage = if (isValid) {
+                    "✅ CSV schema is valid"
+                } else {
+                    "❌ Invalid CSV schema"
+                }
+            }
+        }
+
+        CsvExportButton { uri ->
+            if (uri != null) {
+                val isValid = CsvParser.parseAndValidate(
+                    context.contentResolver, uri
                 )
 
                 resultMessage = if (isValid) {

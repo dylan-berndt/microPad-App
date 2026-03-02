@@ -57,13 +57,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import java.io.File
 
+enum class CameraFlowScreen {
+    CAMERA, LABELING, PROMPT
+}
+
 /**
  * A screen that handles camera permission and displays the camera preview.
  *
- * @param onImageCapture A callback invoked when the user confirms they want to use the captured image.
+ * @param onImagesProcessed A callback invoked when the user finishes capturing and labeling all images.
  */
 @Composable
-fun CameraScreen(onImageCapture: (Uri) -> Unit) {
+fun CameraScreen(onImagesProcessed: (List<LabeledImage>) -> Unit) {
     val context = LocalContext.current
     val activity = context as? Activity
 
@@ -95,7 +99,7 @@ fun CameraScreen(onImageCapture: (Uri) -> Unit) {
     // Display content based on whether the permission is granted.
     Box(modifier = Modifier.fillMaxSize()) {
         if (hasCameraPermission) {
-            CameraContent(onImageCapture = onImageCapture)
+            CameraContent(onImagesProcessed = onImagesProcessed)
         } else {
             PermissionRationaleScreen(
                 onRequestPermission = {
@@ -120,11 +124,12 @@ fun CameraScreen(onImageCapture: (Uri) -> Unit) {
  * The main content of the camera screen, shown when permission is granted.
  */
 @Composable
-private fun CameraContent(onImageCapture: (Uri) -> Unit) {
+private fun CameraContent(onImagesProcessed: (List<LabeledImage>) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // State to hold the URI of the captured image.
+    var allLabeledImages by remember { mutableStateOf(listOf<LabeledImage>()) }
+    var currentScreen by remember { mutableStateOf(CameraFlowScreen.CAMERA) }
     var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
 
     // Create and remember the camera controller.
@@ -139,19 +144,47 @@ private fun CameraContent(onImageCapture: (Uri) -> Unit) {
         cameraController.bindToLifecycle(lifecycleOwner)
     }
 
-    if (capturedImageUri == null) {
-        CameraPreview(
-            controller = cameraController,
-            onCapture = { uri ->
-                capturedImageUri = uri
+    when (currentScreen) {
+        CameraFlowScreen.CAMERA -> {
+            if (capturedImageUri == null) {
+                CameraPreview(
+                    controller = cameraController,
+                    onCapture = { uri ->
+                        capturedImageUri = uri
+                    }
+                )
+            } else {
+                ImagePreviewScreen(
+                    imageUri = capturedImageUri!!,
+                    onRetake = { capturedImageUri = null },
+                    onUsePhoto = {
+                        currentScreen = CameraFlowScreen.LABELING
+                    }
+                )
             }
-        )
-    } else {
-        ImagePreviewScreen(
-            imageUri = capturedImageUri!!,
-            onRetake = { capturedImageUri = null },
-            onUsePhoto = onImageCapture
-        )
+        }
+        CameraFlowScreen.LABELING -> {
+            LabelingScreen(
+                imageUri = capturedImageUri!!,
+                onBack = { currentScreen = CameraFlowScreen.CAMERA },
+                onConfirm = { label ->
+                    allLabeledImages = allLabeledImages + LabeledImage(capturedImageUri!!, label)
+                    currentScreen = CameraFlowScreen.PROMPT
+                }
+            )
+        }
+        CameraFlowScreen.PROMPT -> {
+            NextStepPrompt(
+                capturedCount = allLabeledImages.size,
+                onCaptureMore = {
+                    capturedImageUri = null
+                    currentScreen = CameraFlowScreen.CAMERA
+                },
+                onProcess = {
+                    onImagesProcessed(allLabeledImages)
+                }
+            )
+        }
     }
 }
 
@@ -246,7 +279,7 @@ fun CameraPreview(
 fun ImagePreviewScreen(
     imageUri: Uri,
     onRetake: () -> Unit,
-    onUsePhoto: (Uri) -> Unit
+    onUsePhoto: () -> Unit
 ) {
     val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize()) {
@@ -266,7 +299,7 @@ fun ImagePreviewScreen(
             horizontalArrangement = Arrangement.Center
         ) {
 
-            Button(onClick = { onUsePhoto(imageUri) }) {
+            Button(onClick = onUsePhoto) {
                 Text("Use")
             }
 

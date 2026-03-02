@@ -8,6 +8,7 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Scalar
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -143,10 +144,6 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
-    fun toCSV(): MutableList<Sample> {
-        return samples
-    }
-
     fun classify(
         referenceData: SampleDataset,
         newData: SampleDataset,
@@ -237,6 +234,25 @@ class DatasetModel : ViewModel() {
         return newDataset?.samples?.all { it.validateLabels() } ?: false
     }
 
+    var importedFileName by mutableStateOf("data.csv")
+        private set
+
+    /**
+     * Track imported CSV file for use in exporting to it.
+     */
+    fun setImportedFile(uri: Uri, context: Context) {
+        val cursor = context.contentResolver.query(uri, null, null, null, null)
+        cursor?.use {
+            if (it.moveToFirst()) {
+                val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1) {
+                    importedFileName = it.getString(nameIndex)
+                }
+            }
+        }
+    }
+
+    // This is never updated with the samples from classify
     val samples = mutableStateListOf<Sample>()
 
     /**

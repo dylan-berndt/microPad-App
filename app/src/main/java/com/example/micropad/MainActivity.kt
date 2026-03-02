@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -75,7 +76,7 @@ fun MicroPadApp(viewModel: DatasetModel) {
 
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
-            FrontPage(navController)
+            FrontPage(navController, viewModel)
         }
         composable("namingScreen/{uris}",
             arguments = listOf(navArgument("uris") {type = NavType.StringType}))
@@ -93,7 +94,7 @@ fun MicroPadApp(viewModel: DatasetModel) {
 }
 
 @Composable
-fun FrontPage(navController: NavController) {
+fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(
@@ -117,7 +118,8 @@ fun FrontPage(navController: NavController) {
             when (currentDestination) {
                 AppDestinations.HOME -> Greeting(
                     name = "Android",
-                    modifier = Modifier.padding(innerPadding)
+                    modifier = Modifier.padding(innerPadding),
+                    viewModel = viewModel
                 )
                 AppDestinations.GALLERY -> GalleryPickerScreen(navController)
                 AppDestinations.CAMERA -> CameraScreen(onImageCapture = { uri ->
@@ -138,7 +140,7 @@ enum class AppDestinations(
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
+fun Greeting(name: String, modifier: Modifier = Modifier, viewModel: DatasetModel) {
 
     val context = LocalContext.current
     var resultMessage by remember { mutableStateOf("") }
@@ -155,6 +157,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
         CsvImportButton { uri ->
 
             if (uri != null) {
+                viewModel.setImportedFile(uri, context)  // Save file name
 
                 val isValid = CsvParser.parseAndValidate(
                     context.contentResolver,
@@ -178,6 +181,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Composable
 fun GreetingPreview() {
     MicroPadTheme {
-        Greeting("Android")
+        val mockViewModel: DatasetModel = viewModel()
+        Greeting("Android", viewModel = mockViewModel)
     }
 }

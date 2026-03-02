@@ -145,12 +145,8 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
-    @Composable
-    fun ToCSV(uri: Uri, context: Context) {
-        CsvExportButton(samples.joinToString(separator=",") { sample ->
-            sample.names.joinToString(separator=",") + "," +
-                    sample.rgb.joinToString(separator=",")
-        })
+    fun toCSV(): MutableList<Sample> {
+        return samples
     }
 
     fun classify(
@@ -241,5 +237,26 @@ class DatasetModel : ViewModel() {
     fun allSamplesValid(): Boolean {
         // Checks all samples in the dataset
         return newDataset?.samples?.all { it.validateLabels() } ?: false
+    }
+
+    val samples = mutableStateListOf<Sample>()
+
+    /**
+     *
+     */
+    fun toCsvString(): String {
+        if (samples.isEmpty()) return ""  // No data
+
+        // Header row
+        val header = "sample_name,r_value,g_value,b_value"
+
+        // Data rows
+        val dataRows = samples.joinToString(separator = "\n") { sample ->
+            val name = sample.names.firstOrNull() ?: "N/A"
+            val rgb = sample.rgb.firstOrNull()?.`val` ?: doubleArrayOf(0.0, 0.0, 0.0)
+            "$name,${rgb[0]},${rgb[1]},${rgb[2]}"
+        }
+
+        return "$header\n$dataRows"
     }
 }

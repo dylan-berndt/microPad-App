@@ -39,6 +39,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
@@ -174,6 +175,20 @@ fun Greeting(name: String, modifier: Modifier = Modifier, viewModel: DatasetMode
 
         Spacer(modifier = Modifier.height(16.dp))
         Text(text = resultMessage)
+
+        Text(text = "Test Export Function:")
+        // Fake data for testing
+        val testData = """
+            id,name,value
+            1,Test Sample,0.5
+            2,Another Sample,0.8
+        """.trimIndent()
+
+        // Test button
+        CsvExportButton(
+            dataRow = testData,
+            initialFilename = "test_export.csv"
+        )
     }
 }
 

@@ -21,7 +21,7 @@ import kotlin.math.abs
 
 
 /**
- * A class for handling sample data captured from an image of a micropad
+ * A class for handling sample data captured from an image of a micropad.
  *
  * @param imageData The original image data obtained for the sample
  * @param balanced The rebalanced image that is used for dye well extraction
@@ -145,10 +145,6 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
-    fun toCSV(): MutableList<Sample> {
-        return samples
-    }
-
     fun classify(
         referenceData: SampleDataset,
         newData: SampleDataset,
@@ -208,6 +204,10 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
         return newData
     }
+
+    fun isEmpty(): Boolean {
+        return samples.isEmpty()
+    }
 }
 
 
@@ -239,24 +239,15 @@ class DatasetModel : ViewModel() {
         return newDataset?.samples?.all { it.validateLabels() } ?: false
     }
 
-    val samples = mutableStateListOf<Sample>()
-
     /**
      *
      */
-    fun toCsvString(): String {
-        if (samples.isEmpty()) return ""  // No data
+    fun toCsvString(header: String): String {
+        if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
 
-        // Header row
-        val header = "sample_name,r_value,g_value,b_value"
-
-        // Data rows
-        val dataRows = samples.joinToString(separator = "\n") { sample ->
-            val name = sample.names.firstOrNull() ?: "N/A"
-            val rgb = sample.rgb.firstOrNull()?.`val` ?: doubleArrayOf(0.0, 0.0, 0.0)
-            "$name,${rgb[0]},${rgb[1]},${rgb[2]}"
+        return when {
+            newDataset?.isEmpty() ?: true -> ""
+            else -> "$header\n$newDataset"
         }
-
-        return "$header\n$dataRows"
     }
 }

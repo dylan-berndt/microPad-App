@@ -29,7 +29,14 @@ import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-
+/**
+ * Create a bit mapping from image and save to device storage.
+ *
+ * @param mat [Mat]: Matrix of image columns and rows (colors).
+ * @param filename [String]: Filename to save image.
+ * @param context [Context]: Context of the Composable calling this function
+ * @return String? path to saved image
+ */
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
     return try {
         val bitmap = createBitmap(mat.cols(), mat.rows())

@@ -21,7 +21,7 @@ import kotlin.math.abs
 
 
 /**
- * A class for handling sample data captured from an image of a micropad
+ * A class for handling sample data captured from an image of a micropad.
  *
  * @param imageData The original image data obtained for the sample
  * @param balanced The rebalanced image that is used for dye well extraction

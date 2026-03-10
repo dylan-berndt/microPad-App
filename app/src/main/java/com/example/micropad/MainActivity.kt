@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -12,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -22,21 +23,42 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
+import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.data.CsvExportButton
+import com.example.micropad.data.DatasetModel
+import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
+import com.example.micropad.ui.ImportScreen
+import com.example.micropad.ui.WellNamingScreen
+import com.example.micropad.ui.camera.LabeledImage
+import com.example.micropad.ui.stringToURIs
+import com.example.micropad.ui.urisToString
+import kotlinx.coroutines.launch
 
 import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {
+    private val sharedViewModel: DatasetModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -47,15 +69,37 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MicroPadTheme {
-                MicroPadApp()
+                MicroPadApp(sharedViewModel)
             }
         }
     }
 }
 
-@PreviewScreenSizes
 @Composable
-fun MicroPadApp() {
+fun MicroPadApp(viewModel: DatasetModel) {
+    val navController = rememberNavController()
+
+    NavHost(navController = navController, startDestination = "home") {
+        composable("home") {
+            FrontPage(navController, viewModel)
+        }
+        composable("namingScreen/{uris}",
+            arguments = listOf(navArgument("uris") {type = NavType.StringType}))
+        { backStackEntry ->
+            val data = backStackEntry.arguments?.getString("uris") ?: ""
+            WellNamingScreen(stringToURIs(data), viewModel, navController)
+        }
+        composable("import") {
+            ImportScreen(viewModel, navController)
+        }
+        composable("analysis") {
+            AnalysisScreen(viewModel, navController)
+        }
+    }
+}
+
+@Composable
+fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
 
     NavigationSuiteScaffold(
@@ -79,10 +123,15 @@ fun MicroPadApp() {
             when (currentDestination) {
                 AppDestinations.HOME -> Greeting(
                     name = "Android",
-                    modifier = Modifier.padding(innerPadding)
+                    modifier = Modifier.padding(innerPadding),
+                    viewModel = viewModel
                 )
-                AppDestinations.GALLERY -> GalleryPickerScreen()
-                AppDestinations.PROFILE -> GalleryPickerScreen()
+                AppDestinations.GALLERY -> GalleryPickerScreen(navController)
+                AppDestinations.CAMERA -> CameraScreen(onImagesProcessed = { labeledImages ->
+                    val uris = labeledImages.map { it.uri }
+                    val uriString = urisToString(uris)
+                    navController.navigate("namingScreen/$uriString")
+                })
             }
         }
     }
@@ -94,11 +143,15 @@ enum class AppDestinations(
 ) {
     HOME("Home", Icons.Default.Home),
     GALLERY("Gallery", Icons.Default.Favorite),
-    PROFILE("Profile", Icons.Default.AccountBox),
+    CAMERA("Camera", Icons.Default.Add)
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
+fun Greeting(name: String, modifier: Modifier = Modifier, viewModel: DatasetModel) {
+
+    val context = LocalContext.current
+    var resultMessage by remember { mutableStateOf("") }
+
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -109,8 +162,25 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
         Spacer(modifier = Modifier.height(16.dp))
 
         CsvImportButton { uri ->
-            println("Selected CSV: $uri")
+
+            if (uri != null) {
+                viewModel.setImportedFile(uri, context)  // Save file name
+
+                val isValid = CsvParser.parseAndValidate(
+                    context.contentResolver,
+                    uri
+                )
+
+                resultMessage = if (isValid) {
+                    "✅ CSV schema is valid"
+                } else {
+                    "❌ Invalid CSV schema"
+                }
+            }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = resultMessage)
     }
 }
 
@@ -118,6 +188,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @Composable
 fun GreetingPreview() {
     MicroPadTheme {
-        Greeting("Android")
+        val mockViewModel: DatasetModel = viewModel()
+        Greeting("Android", viewModel = mockViewModel)
     }
 }

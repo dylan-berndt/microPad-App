@@ -39,6 +39,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
+import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
 import com.example.micropad.ui.CameraScreen
@@ -46,7 +48,10 @@ import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.ImportScreen
 import com.example.micropad.ui.WellNamingScreen
+import com.example.micropad.ui.camera.LabeledImage
 import com.example.micropad.ui.stringToURIs
+import com.example.micropad.ui.urisToString
+import kotlinx.coroutines.launch
 
 import org.opencv.android.OpenCVLoader
 
@@ -120,8 +125,10 @@ fun FrontPage(navController: NavController) {
                     modifier = Modifier.padding(innerPadding)
                 )
                 AppDestinations.GALLERY -> GalleryPickerScreen(navController)
-                AppDestinations.CAMERA -> CameraScreen(onImageCapture = { uri ->
-                    Log.d("MainActivity", "Image captured: $uri")
+                AppDestinations.CAMERA -> CameraScreen(onImagesProcessed = { labeledImages ->
+                    val uris = labeledImages.map { it.uri }
+                    val uriString = urisToString(uris)
+                    navController.navigate("namingScreen/$uriString")
                 })
             }
         }

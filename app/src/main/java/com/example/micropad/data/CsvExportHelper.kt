@@ -15,7 +15,7 @@ import java.io.IOException
  * Provide a UI button to launch a file picker.
  */
 @Composable
-fun CsvExportButton(dataRow: String) {
+fun CsvExportButton(dataRow: String, initialFilename: String? = "data.csv") {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
@@ -24,7 +24,7 @@ fun CsvExportButton(dataRow: String) {
     }
 
     Button(onClick = {
-        launcher.launch("export.csv")
+        launcher.launch(initialFilename ?: "data.csv")
     }) {
         Text("Export CSV")
     }

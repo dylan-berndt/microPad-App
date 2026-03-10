@@ -1,7 +1,5 @@
 package com.example.micropad
 
-import android.content.Context
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -33,11 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -48,9 +42,6 @@ import com.example.micropad.data.CsvImportButton
 import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.SampleDataset
-import com.example.micropad.data.Sample
-import com.example.micropad.data.ingestImages
 import com.example.micropad.ui.AnalysisScreen
 import com.example.micropad.ui.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme

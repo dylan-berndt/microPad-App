@@ -6,10 +6,8 @@ import android.graphics.Bitmap
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Scalar
-import com.example.micropad.data.Sample
 import android.content.Context
 import android.net.Uri
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf

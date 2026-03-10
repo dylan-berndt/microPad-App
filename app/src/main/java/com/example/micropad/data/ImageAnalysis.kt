@@ -586,7 +586,7 @@ val expectedColors = mutableListOf(
 
 
 // Perform the full preprocessing of the image
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {{}
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)

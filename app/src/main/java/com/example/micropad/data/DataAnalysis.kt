@@ -240,7 +240,8 @@ class DatasetModel : ViewModel() {
     val samples = mutableStateListOf<Sample>()
 
     /**
-     *
+     * Provide a proper CSV string to CsvExportButton functionality 
+     * based on SampleDataset.classify().
      */
     fun toCsvString(): String {
         if (samples.isEmpty()) return ""  // No data

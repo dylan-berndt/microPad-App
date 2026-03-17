@@ -389,11 +389,11 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>): Bitma
             center.y + textSize.height / 2.0
         )
 
-        Imgproc.drawContours(output, listOf(contour), -1, Scalar(0.0, 0.0, 0.0, 255.0), 6)
+        Imgproc.drawContours(output, listOf(contour), -1, Scalar(255.0, 255.0, 255.0, 255.0), -1)
 
         // White outline drawn first, then black text on top
-        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
-            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
+//        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
+//            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
         Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
             fontScale, Scalar(0.0, 0.0, 0.0, 255.0), thickness)
     }
@@ -617,7 +617,7 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
         extractDyeColor(extractContour(balanced, it.first))
     }
 
-    val orderingImage = drawOrdering(balanced, dots)
+    val orderingImage = drawOrdering(image, dots)
     for (color in dotColors) {
         Log.d("Image", "Color: $color")
     }

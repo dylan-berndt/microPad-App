@@ -12,6 +12,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -68,23 +69,22 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
         Collections.swap(rgb, from, to)
         Collections.swap(greyscale, from, to)
 
-        if (balanced != null) {
-            // ordering = drawOrdering(balanced, dots) // Uncomment if drawOrdering exists
+        if (imageData != null) {
+            ordering = drawOrdering(imageData, dots)
         }
     }
 }
-
-
-// TODO: Data validation: Check that all images have same number of dots and allow
-// for retaking of images
 
 
 /**
  * A class for abstracting useful functionality when comparing two datasets
  *
  * @property samples A list of samples compiled in one place, to be used for classification
+ * @property selected A list of booleans indicating which of the ROIs are to be used for classification
  */
 class SampleDataset(val samples: MutableList<Sample>) {
+    var selected = mutableListOf<Boolean>().apply {repeat(samples.size) { add(true) } }
+
     fun nameWell(index: Int, name: String): Boolean {
         var worked = true
         for (sample in samples) {
@@ -100,13 +100,15 @@ class SampleDataset(val samples: MutableList<Sample>) {
 
     fun fromCSV(uri: Uri, context: Context) {
         val input = context.contentResolver.openInputStream(uri) ?: return
+        samples.clear()
         input.bufferedReader().useLines { lines ->
-            samples.clear()
 
             lines.forEach { line ->
                 try {
                     val tokens = line.split(",")
 
+                    // TODO: This should not be hardcoded, find a way to retrieve the header
+                    // from the first line of the CSV
                     val numberOfDots = 6
                     val expectedColumns = numberOfDots * 4
 
@@ -224,7 +226,7 @@ class DatasetModel : ViewModel() {
     fun ingest(uris: List<Uri>, context: Context) {
         viewModelScope.launch {
             isLoading = true
-            newDataset = ingestImages(uris, context, log=true)
+            newDataset = ingestImages(uris, context, log=false)
             isLoading = false
         }
     }

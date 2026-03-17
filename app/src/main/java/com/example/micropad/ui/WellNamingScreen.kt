@@ -1,10 +1,15 @@
 package com.example.micropad.ui
 
+import android.R.style.Theme
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -12,12 +17,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
+import kotlinx.coroutines.selects.select
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -38,20 +45,31 @@ fun WellNamingGrid(dataset: SampleDataset) {
     val scrollState = rememberScrollState()
 
     var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
+    var selected = remember { mutableStateListOf<Boolean>().apply {repeat(numberOfDots) { add(true) } } }
 
-    Column (modifier = Modifier.verticalScroll(scrollState).fillMaxWidth()) {
-        for (i in 0 until numberOfDots) {
-            Box {
-                TextField(
-                    value = texts[i],
-                    onValueChange = { dataset.nameWell(i, it); texts[i] = it },
-                    label = { Text(text = "ROI ${i + 1}") },
-                    placeholder = { Text("Enter a Label") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-
-                )
+    Column(modifier = Modifier.fillMaxWidth().padding(all = 10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            Text("Selected", modifier = Modifier.fillMaxWidth(0.2f))
+            Text("Region of Interest Name", modifier = Modifier.fillMaxWidth(0.8f))
+        }
+        LazyColumn(modifier = Modifier.verticalScroll(scrollState).fillMaxWidth().height(200.dp)) {
+            itemsIndexed(texts) { i, text ->
+                Box {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Checkbox(
+                            selected[i], { dataset.selected[i] = it; selected[i] = it },
+                            modifier = Modifier.fillMaxWidth(0.2f)
+                        )
+                        TextField(
+                            value = texts[i],
+                            onValueChange = { dataset.nameWell(i, it); texts[i] = it },
+                            label = { Text(text = "ROI ${i + 1}") },
+                            placeholder = { Text("Enter a Label") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(0.8f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -61,6 +79,8 @@ fun WellNamingGrid(dataset: SampleDataset) {
 @Composable
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
+
+    var selectedImage by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(addresses) {
         viewModel.ingest(addresses, context)
@@ -76,26 +96,39 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
         }
     } else {
         viewModel.newDataset?.let { dataset ->
-            Column(modifier = Modifier.fillMaxSize()) {
+
+            Column(modifier = Modifier.fillMaxWidth().padding(top=36.dp, bottom=36.dp)) {
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).align(Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // TODO: Implement reordering in the case ROI are out of order
-                    items(dataset.samples) { sample ->
+                    itemsIndexed(dataset.samples) { index, sample ->
+                        var modifier = Modifier
+                            .fillMaxWidth(0.9f)
+                            .height(200.dp)
+                            .clickable(onClick = { selectedImage = index })
+                        if (index == selectedImage) {
+                            modifier = modifier
+                                .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
+                                .background(MaterialTheme.colorScheme.secondary)
+                        }
+
                         if (sample.ordering != null) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp)
-                            ) {
+                            Row(modifier = modifier) {
                                 Image(
                                     bitmap = sample.ordering!!.asImageBitmap(),
                                     contentDescription = null,
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .fillMaxWidth()
+                                        .fillMaxWidth(0.7f / 0.9f)
                                         .height(200.dp)
                                 )
+                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                    itemsIndexed(sample.names) { i, name ->
+                                        if (name != "") Text("${i + 1}: ${name}") else null
+                                    }
+                                }
                             }
                         }
                     }

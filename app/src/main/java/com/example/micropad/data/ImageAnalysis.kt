@@ -16,20 +16,25 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
-import java.io.InputStream
 import java.io.FileOutputStream
 import java.io.File
 
 import kotlin.math.pow
 import kotlin.math.abs
 import kotlin.math.atan2
-import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-
+/**
+ * Create a bit mapping from image and save to device storage.
+ *
+ * @param mat [Mat]: Matrix of image columns and rows (colors).
+ * @param filename [String]: Filename to save image.
+ * @param context [Context]: Context of the Composable calling this function
+ * @return String? path to saved image
+ */
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
     return try {
         val bitmap = createBitmap(mat.cols(), mat.rows())
@@ -588,7 +593,7 @@ val expectedColors = mutableListOf(
 
 
 // Perform the full preprocessing of the image
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {{}
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)

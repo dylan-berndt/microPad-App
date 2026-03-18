@@ -1,6 +1,5 @@
 package com.example.micropad.ui
 
-import android.content.Context
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -16,15 +15,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.Sample
 import com.example.micropad.data.SampleDataset
-import com.example.micropad.data.ingestImages
-import kotlinx.coroutines.launch
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {

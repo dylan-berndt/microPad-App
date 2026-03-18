@@ -266,9 +266,20 @@ class DatasetModel : ViewModel() {
     fun toCsvString(header: String): String {
         if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
 
-        return when {
-            newDataset?.isEmpty() ?: true -> ""
-            else -> "$header\n$newDataset"
+        val rows = newDataset!!.samples.joinToString("\n") { sample ->
+            val rgbParts = sample.rgb.flatMap { scalar ->
+                listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
+            }.map { it.toString() }
+            val nameParts = sample.names.map { name ->
+                val escaped = name.replace("\"", "\"\"")
+                if (name.contains(',') || name.contains('\n') || name.contains('"')) {
+                    "\"$escaped\""
+                } else {
+                    name
+                }
+            }
+            (rgbParts + nameParts).joinToString(",")
         }
+        return "$header\n$rows"
     }
 }

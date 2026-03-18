@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -18,6 +19,7 @@ import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
+import com.example.micropad.data.drawOrdering
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -33,24 +35,29 @@ fun stringToURIs(data: String): List<Uri> {
 }
 
 @Composable
-fun WellNamingGrid(dataset: SampleDataset) {
-    val numberOfDots = dataset.samples[0].rgb.size
+fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
+    val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
     val scrollState = rememberScrollState()
 
-    var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
+    // Use the names from the first sample as they are kept in sync across all samples
+    val names = dataset.samples.getOrNull(0)?.names ?: mutableStateListOf()
 
     Column (modifier = Modifier.verticalScroll(scrollState).fillMaxWidth()) {
         for (i in 0 until numberOfDots) {
             Box {
                 TextField(
-                    value = texts[i],
-                    onValueChange = { dataset.nameWell(i, it); texts[i] = it },
+                    value = if (i < names.size) names[i] else "",
+                    onValueChange = { dataset.nameWell(i, it) },
                     label = { Text(text = "ROI ${i + 1}") },
                     placeholder = { Text("Enter a Label") },
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                onFocusChange(i)
+                            }
+                        }
                 )
             }
         }
@@ -61,6 +68,7 @@ fun WellNamingGrid(dataset: SampleDataset) {
 @Composable
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
+    var focusedIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(addresses) {
         viewModel.ingest(addresses, context)
@@ -83,14 +91,22 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                 ) {
                     // TODO: Implement reordering in the case ROI are out of order
                     items(dataset.samples) { sample ->
-                        if (sample.ordering != null) {
+                        val displayBitmap = remember(sample, focusedIndex) {
+                            if (focusedIndex != null && sample.balanced != null) {
+                                drawOrdering(sample.balanced, sample.dots, focusedIndex)
+                            } else {
+                                sample.ordering
+                            }
+                        }
+
+                        if (displayBitmap != null) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(8.dp)
                             ) {
                                 Image(
-                                    bitmap = sample.ordering!!.asImageBitmap(),
+                                    bitmap = displayBitmap.asImageBitmap(),
                                     contentDescription = null,
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -101,7 +117,9 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                     }
                 }
 
-                WellNamingGrid(dataset)
+                WellNamingGrid(dataset) { index ->
+                    focusedIndex = index
+                }
 
                 // NEXT BUTTON
                 Button(

@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +26,7 @@ import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import kotlinx.coroutines.selects.select
+import com.example.micropad.data.drawOrdering
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -40,8 +42,8 @@ fun stringToURIs(data: String): List<Uri> {
 }
 
 @Composable
-fun WellNamingGrid(dataset: SampleDataset) {
-    val numberOfDots = dataset.samples[0].rgb.size
+fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
+    val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
     val scrollState = rememberScrollState()
 
     var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
@@ -54,10 +56,11 @@ fun WellNamingGrid(dataset: SampleDataset) {
         }
         LazyColumn(modifier = Modifier.verticalScroll(scrollState).fillMaxWidth().height(200.dp)) {
             itemsIndexed(texts) { i, text ->
+                val isSelected = if (i < selected.size) selected[i] else true
                 Box {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Checkbox(
-                            selected[i], { dataset.selected[i] = it; selected[i] = it },
+                            selected[i], { dataset.toggleWell(i, it); selected[i] = it },
                             modifier = Modifier.fillMaxWidth(0.2f)
                         )
                         TextField(
@@ -66,7 +69,14 @@ fun WellNamingGrid(dataset: SampleDataset) {
                             label = { Text(text = "ROI ${i + 1}") },
                             placeholder = { Text("Enter a Label") },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(0.8f)
+                            enabled = isSelected,
+                            modifier = Modifier
+                                .fillMaxWidth(0.8f)
+                                .onFocusChanged { state ->
+                                    if (state.isFocused) {
+                                        onFocusChange(i)
+                                    }
+                                }
                         )
                     }
                 }
@@ -79,6 +89,7 @@ fun WellNamingGrid(dataset: SampleDataset) {
 @Composable
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
+    var focusedIndex by remember { mutableStateOf<Int?>(null) }
 
     var selectedImage by remember { mutableIntStateOf(-1) }
 
@@ -114,10 +125,18 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                                 .background(MaterialTheme.colorScheme.secondary)
                         }
 
-                        if (sample.ordering != null) {
+                        val displayBitmap = remember(sample, focusedIndex, sample.isSelected.toList()) {
+                            if (sample.balanced != null) {
+                                drawOrdering(sample.balanced, sample.dots, focusedIndex, sample.isSelected)
+                            } else {
+                                sample.ordering
+                            }
+                        }
+
+                        if (displayBitmap != null) {
                             Row(modifier = modifier) {
                                 Image(
-                                    bitmap = sample.ordering!!.asImageBitmap(),
+                                    bitmap = displayBitmap.asImageBitmap(),
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -134,7 +153,9 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                     }
                 }
 
-                WellNamingGrid(dataset)
+                WellNamingGrid(dataset) { index ->
+                    focusedIndex = index
+                }
 
                 // NEXT BUTTON
                 Button(
@@ -152,7 +173,7 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                 // Show warning if not valid
                 if (!viewModel.allSamplesValid()) {
                     Text(
-                        text = "Please assign all labels before continuing",
+                        text = "Please assign all active labels before continuing",
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )

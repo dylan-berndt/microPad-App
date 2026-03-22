@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -182,18 +183,18 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                 ) {
                     itemsIndexed(dataset.samples) { index, sample ->
                         var modifier = Modifier
-                            .fillMaxWidth(0.9f)
+                            .fillMaxWidth(0.95f)
                             .height(200.dp)
                             .clickable(onClick = { selectedImage = index })
+                            .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
                         if (index == selectedImage) {
                             modifier = modifier
-                                .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
-                                .background(MaterialTheme.colorScheme.secondary)
+                                .background(MaterialTheme.colorScheme.primary)
                         }
 
                         // Yeesh
                         val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList()) {
-                            sample.ordering?.let { drawOrdering(sample.balanced ?: sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
+                            sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
                         }
 
                         if (displayBitmap != null) {
@@ -203,12 +204,31 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .fillMaxWidth(0.7f / 0.9f)
+                                        .fillMaxWidth(0.6f / 0.95f)
                                         .height(200.dp)
                                 )
                                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                                     itemsIndexed(sample.names) { i, name ->
-                                        if (name != "") Text("${i + 1}: ${name}") else null
+                                        if (name != "") {
+                                         Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text("${i + 1}. ${name}", modifier=Modifier.padding(end=5.dp))
+                                                val scalar = sample.dots[i].second
+                                                val color = Color(
+                                                    red = scalar.`val`[2].toInt(),
+                                                    green = scalar.`val`[1].toInt(),
+                                                    blue = scalar.`val`[0].toInt(),
+                                                    alpha = 255
+                                                )
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(15.dp)
+                                                        .background(color)
+                                                        .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
+                                                )
+                                            }
+                                        }
+                                        else null
                                     }
                                 }
                             }
@@ -217,10 +237,10 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                 }
 
                 val tabs: List<@Composable () -> Unit> = listOf(
-                    { WellNamingGrid(dataset) { index -> focusedIndex = index } },
-                    { WellOrderingGrid(dataset, selectedImage) }
+                    { WellOrderingGrid(dataset, selectedImage) },
+                    { WellNamingGrid(dataset) { index -> focusedIndex = index } }
                 )
-                val tabNames = listOf("ROI Naming", "ROI Ordering")
+                val tabNames = listOf("ROI Ordering", "ROI Naming")
                 val pagerState = rememberPagerState(pageCount = { tabs.size })
                 val coroutineScope = rememberCoroutineScope()
 

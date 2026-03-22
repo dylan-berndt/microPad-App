@@ -471,7 +471,7 @@ fun extractContour(image: Mat, contour: MatOfPoint): Mat {
 }
 
 
-fun extractDyeColor(extractedMat: Mat): Scalar {
+fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
     // Convert to HSV for better color filtering
     val hsv = Mat()
     Imgproc.cvtColor(extractedMat, hsv, Imgproc.COLOR_BGR2HSV)
@@ -499,9 +499,29 @@ fun extractDyeColor(extractedMat: Mat): Scalar {
     // Subtract white mask from color mask
     Core.subtract(colorMask, whiteMask, colorMask)
 
-    // Get mean color of remaining pixels in BGR
-    val meanColor = Core.mean(extractedMat, colorMask)
-    return meanColor
+    // Fall back to white if the mask filtered everything out
+    if (Core.countNonZero(colorMask) == 0) {
+        return Scalar(255.0, 255.0, 255.0, 255.0)
+    }
+
+    if (selectionStrategy == "Mean") {
+        // Get mean color of remaining pixels in BGR
+        return Core.mean(extractedMat, colorMask)
+    }
+    else if (selectionStrategy == "Center") {
+        // Get the centroid of the mask using moments
+        val moments = Imgproc.moments(colorMask)
+
+        val cx = (moments.m10 / moments.m00).toInt()
+        val cy = (moments.m01 / moments.m00).toInt()
+
+        // Sample the pixel at the centroid in BGR
+        val pixel = extractedMat.get(cy, cx)
+        return Scalar(pixel[0], pixel[1], pixel[2], 255.0)
+    }
+
+    // Fallback if invalid selection strategy was chosen
+    return Scalar(255.0, 255.0, 255.0, 255.0)
 }
 
 
@@ -509,7 +529,9 @@ fun extractDyeColor(extractedMat: Mat): Scalar {
 // Returns a List of all dots that were found, each element consisting of:
 // MatOfPoint: the dot contour, and Scalar: the extracted color value
 // Attempts to order dots from left to right, then top to bottom
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean, shrink: Float = 0.4f): MutableList<Pair<MatOfPoint, Scalar>> {
+fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
+             log: Boolean, selectionStrategy: String, shrink: Float = 0.4f):
+        MutableList<Pair<MatOfPoint, Scalar>> {
     val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
 
     var i = 0
@@ -536,7 +558,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
 
             if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
 
-            val dataPoint = extractDyeColor(extractedData)
+            val dataPoint = extractDyeColor(extractedData, selectionStrategy)
             val pair = Pair(center, dataPoint)
             candidates.add(pair)
             i += 1
@@ -593,16 +615,16 @@ val expectedColors = mutableListOf(
 
 
 // Perform the full preprocessing of the image
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String, selectionStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)
     val colors = extractCalibrationColors(shapes)
 
-    val dots = findDots(image, contours, context, log)
+    val dots = findDots(image, contours, context, log, selectionStrategy)
 
     // Requires that control dot is in top left
-    val controlDot = extractDyeColor(extractContour(image, dots[0].first))
+    val controlDot = extractDyeColor(extractContour(image, dots[0].first), selectionStrategy)
 
     // TODO: Normalization modes: MinMax, Z-Score
     var balanced = image
@@ -621,7 +643,7 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
     }
 
     val dotColors = dots.map {
-        extractDyeColor(extractContour(balanced, it.first))
+        extractDyeColor(extractContour(balanced, it.first), selectionStrategy)
     }
 
     val orderingImage = drawOrdering(balanced, dots)
@@ -654,7 +676,7 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
  *
  * @return SampleDataset, a list of all the Samples obtained from the images
  */
-suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression"): SampleDataset = coroutineScope {
+suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression", selectionStrategy: String = "Mean"): SampleDataset = coroutineScope {
     val images = addresses.map { uri ->
         async(Dispatchers.Default) {
             val inputStream = context.contentResolver.openInputStream(uri)
@@ -670,7 +692,7 @@ suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = 
 
             val cropped = findAndWarpCard(image, context, log) ?: image
 
-            preprocessImage(cropped, context, log, normalizationStrategy)
+            preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
         }
     }.awaitAll()
 

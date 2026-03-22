@@ -32,7 +32,7 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
         Spacer(modifier = Modifier.height(24.dp))
 
         // Export-to-CSV button
-        val csvData = viewModel.toCsvString()
+        val csvData = viewModel.toCsvString("")
         val initialName = viewModel.importedFileName
         CsvExportButton(dataRow = csvData, initialFilename = initialName)
     }

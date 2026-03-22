@@ -225,10 +225,11 @@ class DatasetModel : ViewModel() {
         private set
 
     // Your ingest function
-    fun ingest(uris: List<Uri>, context: Context) {
+    fun ingest(uris: List<Uri>, context: Context, selectionStrategy: String) {
         viewModelScope.launch {
             isLoading = true
-            newDataset = ingestImages(uris, context, log=true)
+            newDataset = null
+            newDataset = ingestImages(uris, context, log=true, selectionStrategy=selectionStrategy)
             isLoading = false
         }
     }

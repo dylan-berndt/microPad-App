@@ -2,6 +2,7 @@ package com.example.micropad.ui
 
 import android.net.Uri
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,11 +14,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
+import com.example.micropad.R
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -62,8 +65,11 @@ fun WellNamingGrid(dataset: SampleDataset) {
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
 
-    LaunchedEffect(addresses) {
-        viewModel.ingest(addresses, context)
+    val strategies = listOf("Mean", "Center")
+    var selectionStrategy by remember {mutableStateOf("Mean")}
+
+    LaunchedEffect(addresses, selectionStrategy) {
+        viewModel.ingest(addresses, context, selectionStrategy)
     }
 
     if (viewModel.isLoading) {
@@ -102,6 +108,41 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                 }
 
                 WellNamingGrid(dataset)
+
+                val isDropDownExpanded = remember {
+                    mutableStateOf(false)
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable {
+                        isDropDownExpanded.value = true
+                    }
+                ) {
+                    Text(text = "Dye Extraction Strategy: $selectionStrategy ")
+                    Image(
+                        painter = painterResource(id = R.drawable.dropdown),
+                        contentDescription = "DropDown Icon",
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = isDropDownExpanded.value,
+                    onDismissRequest = {
+                        isDropDownExpanded.value = false
+                    }) {
+                    strategies.forEachIndexed { index, strategy ->
+                        DropdownMenuItem(text = {
+                            Text(text = strategy)
+                        },
+                            onClick = {
+                                isDropDownExpanded.value = false
+                                selectionStrategy = strategy
+                            })
+                    }
+                }
 
                 // NEXT BUTTON
                 Button(

@@ -36,7 +36,7 @@ import kotlin.math.abs
  * @property names The chosen names for each of the dye wells in an image
  * @property referenceName Used only if a sample is a reference point, stores the reference data
  */
-class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
+class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
     // Grey = 0.299R + 0.587G + 0.114B
     var rgb: List<Scalar> = dots.map { it.second }
     var greyscale: List<Double> =
@@ -48,6 +48,9 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
         repeat(rgb.size) { add(true) }
     }
     var referenceName: String = ""
+
+    var ordering by mutableStateOf(initialOrdering)
+        private set
 
     fun validateLabels(): Boolean {
         val activeNames = names.filterIndexed { index, _ -> isSelected[index] }

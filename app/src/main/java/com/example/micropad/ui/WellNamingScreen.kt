@@ -7,6 +7,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
@@ -32,6 +34,7 @@ import com.example.micropad.data.SampleDataset
 import kotlinx.coroutines.selects.select
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
+import com.example.micropad.R
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -152,7 +155,6 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     }
 }
 
-
 // Main composable for Well Naming screen
 @Composable
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
@@ -161,8 +163,11 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
 
     var selectedImage by remember { mutableIntStateOf(-1) }
 
-    LaunchedEffect(addresses) {
-        viewModel.ingest(addresses, context)
+    val strategies = listOf("Mean", "Center")
+    var selectionStrategy by remember {mutableStateOf("Mean")}
+
+    LaunchedEffect(addresses, selectionStrategy) {
+        viewModel.ingest(addresses, context, selectionStrategy)
     }
 
     if (viewModel.isLoading) {
@@ -258,6 +263,41 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                             selected = pagerState.currentPage == index,
                             onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
                         )
+                    }
+                }
+
+                val isDropDownExpanded = remember {
+                    mutableStateOf(false)
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable {
+                        isDropDownExpanded.value = true
+                    }
+                ) {
+                    Text(text = "Dye Extraction Strategy: $selectionStrategy ")
+                    Image(
+                        painter = painterResource(id = R.drawable.dropdown),
+                        contentDescription = "DropDown Icon",
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = isDropDownExpanded.value,
+                    onDismissRequest = {
+                        isDropDownExpanded.value = false
+                    }) {
+                    strategies.forEachIndexed { index, strategy ->
+                        DropdownMenuItem(text = {
+                            Text(text = strategy)
+                        },
+                            onClick = {
+                                isDropDownExpanded.value = false
+                                selectionStrategy = strategy
+                            })
                     }
                 }
 

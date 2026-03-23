@@ -250,10 +250,11 @@ class DatasetModel : ViewModel() {
         private set
 
     // Your ingest function
-    fun ingest(uris: List<Uri>, context: Context) {
+    fun ingest(uris: List<Uri>, context: Context, selectionStrategy: String) {
         viewModelScope.launch {
             isLoading = true
-            newDataset = ingestImages(uris, context, log=false)
+            newDataset = null
+            newDataset = ingestImages(uris, context, log=false, selectionStrategy=selectionStrategy)
             isLoading = false
         }
     }
@@ -292,17 +293,17 @@ class DatasetModel : ViewModel() {
         if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
 
         val rows = newDataset!!.samples.joinToString("\n") { sample ->
-            // Only include selected wells in the CSV output? 
+            // Only include selected wells in the CSV output?
             // Or include them all but with empty names?
             // Usually, users expect only selected ones if they "choose which they want".
-            
+
             val selectedIndices = sample.isSelected.indices.filter { sample.isSelected[it] }
-            
+
             val rgbParts = selectedIndices.flatMap { index ->
                 val scalar = sample.rgb[index]
                 listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
             }.map { it.toString() }
-            
+
             val nameParts = selectedIndices.map { index ->
                 val name = sample.names[index]
                 val escaped = name.replace("\"", "\"\"")

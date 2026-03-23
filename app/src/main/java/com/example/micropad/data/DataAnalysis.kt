@@ -1,22 +1,20 @@
 package com.example.micropad.data
 
-import java.util.Collections
-
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import java.util.Collections
 import kotlin.math.abs
 
 
@@ -34,7 +32,8 @@ import kotlin.math.abs
  * the image
  * @property greyscale The greyscale version of the color data
  * @property names The chosen names for each of the dye wells in an image
- * @property referenceName Used only if a sample is a reference point, stores the reference data
+ * @property sampleId The sample number in the CSV file
+ * @property referenceId The number the sample is matched with, if any
  */
 class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
     // Grey = 0.299R + 0.587G + 0.114B
@@ -44,11 +43,11 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
+    var sampleId: Int? = null
+    var referenceId: Int? = null
     var isSelected = mutableStateListOf<Boolean>().apply {
         repeat(rgb.size) { add(true) }
     }
-    var referenceName: String = ""
-
     var ordering by mutableStateOf(initialOrdering)
         private set
 

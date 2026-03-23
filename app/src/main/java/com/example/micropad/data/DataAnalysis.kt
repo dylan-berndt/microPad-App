@@ -266,10 +266,14 @@ class DatasetModel : ViewModel() {
     var importedFileName by mutableStateOf("data.csv")
         private set
 
+    var importedFileUri by mutableStateOf<Uri?>(null)
+        private set
+
     /**
      * Track imported CSV file for use in exporting to it.
      */
     fun setImportedFile(uri: Uri, context: Context) {
+        importedFileUri = uri
         val cursor = context.contentResolver.query(uri, null, null, null, null)
         cursor?.use {
             if (it.moveToFirst()) {
@@ -288,32 +292,31 @@ class DatasetModel : ViewModel() {
      * Provide a proper CSV string to CsvExportButton functionality 
      * based on SampleDataset.classify().
      */
-    fun toCsvString(header: String): String {
+    fun toCsvString(includeHeader: Boolean = true): String {
         if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
 
+        val header = "sample_id,reference_name,distance_calculation,similarity_score,No Dye_r,No Dye_g,No Dye_b,DMGO_r,DMGO_g,DMGO_b,XO_r,XO_g,XO_b,Phen_r,Phen_g,Phen_b,DCP_r,DCP_g,DCP_b,PAR_r,PAR_g,PAR_b"
+
         val rows = newDataset!!.samples.joinToString("\n") { sample ->
-            // Only include selected wells in the CSV output?
-            // Or include them all but with empty names?
-            // Usually, users expect only selected ones if they "choose which they want".
-
-            val selectedIndices = sample.isSelected.indices.filter { sample.isSelected[it] }
-
-            val rgbParts = selectedIndices.flatMap { index ->
-                val scalar = sample.rgb[index]
-                listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
-            }.map { it.toString() }
-
-            val nameParts = selectedIndices.map { index ->
-                val name = sample.names[index]
-                val escaped = name.replace("\"", "\"\"")
-                if (name.contains(',') || name.contains('\n') || name.contains('"')) {
-                    "\"$escaped\""
-                } else {
-                    name
-                }
+            // Current implementation assumes fixed number of color columns for the entire row
+            // matching the header structure.
+            
+            // Reconstructing the row according to the header:
+            // sample_id,reference_name,distance_calculation,similarity_score,colors...
+            val rowItems = mutableListOf<String>()
+            rowItems.add(sample.sampleId ?: "")
+            rowItems.add(sample.referenceName ?: "")
+            rowItems.add("") // distance_calculation
+            rowItems.add("") // similarity_score
+            
+            sample.rgb.forEach { scalar ->
+                rowItems.add(scalar.`val`[0].toInt().toString())
+                rowItems.add(scalar.`val`[1].toInt().toString())
+                rowItems.add(scalar.`val`[2].toInt().toString())
             }
-            (rgbParts + nameParts).joinToString(",")
+            
+            rowItems.joinToString(",")
         }
-        return "$header\n$rows"
+        return if (includeHeader) "$header\n$rows" else rows
     }
 }

@@ -2,9 +2,11 @@ package com.example.micropad.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -14,9 +16,6 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
-
-// Here's where we should put everything to do with choosing the analysis mode
-// and potentially showing analysis results
 
 @Composable
 fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
@@ -31,9 +30,30 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
         Text("Analysis Results")
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Export-to-CSV button
-        val csvData = viewModel.toCsvString("")
+        // Get the data to be exported (excluding header as writeToCsv adds it or handles existing ones)
+        val csvData = viewModel.toCsvString(includeHeader = false)
         val initialName = viewModel.importedFileName
-        CsvExportButton(dataRow = csvData, initialFilename = initialName)
+        val existingUri = viewModel.importedFileUri
+
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Button to append current results as new references
+            CsvExportButton(
+                dataRows = csvData,
+                type = "references",
+                initialFilename = initialName,
+                existingUri = existingUri
+            )
+
+            // Button to append current results as new samples
+            CsvExportButton(
+                dataRows = csvData,
+                type = "samples",
+                initialFilename = initialName,
+                existingUri = existingUri
+            )
+        }
     }
 }

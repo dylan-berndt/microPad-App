@@ -43,8 +43,8 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
-    var sampleId: Int? = null
-    var referenceId: Int? = null
+    var sampleId: String? = ""
+    var referenceName: String? = ""
     var isSelected = mutableStateListOf<Boolean>().apply {
         repeat(rgb.size) { add(true) }
     }

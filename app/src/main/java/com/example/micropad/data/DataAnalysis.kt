@@ -12,6 +12,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -35,7 +36,7 @@ import kotlin.math.abs
  * @property names The chosen names for each of the dye wells in an image
  * @property referenceName Used only if a sample is a reference point, stores the reference data
  */
-class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
+class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
     // Grey = 0.299R + 0.587G + 0.114B
     var rgb: List<Scalar> = dots.map { it.second }
     var greyscale: List<Double> =
@@ -43,11 +44,18 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
+    var isSelected = mutableStateListOf<Boolean>().apply {
+        repeat(rgb.size) { add(true) }
+    }
     var referenceName: String = ""
 
+    var ordering by mutableStateOf(initialOrdering)
+        private set
+
     fun validateLabels(): Boolean {
-        if (names.any { it.isBlank() }) return false
-        if (names.toSet().size != names.size) return false
+        val activeNames = names.filterIndexed { index, _ -> isSelected[index] }
+        if (activeNames.any { it.isBlank() }) return false
+        if (activeNames.toSet().size != activeNames.size) return false
         return true
     }
 
@@ -59,6 +67,12 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
         return true
     }
 
+    fun toggleSelection(index: Int, selected: Boolean) {
+        if (index in isSelected.indices) {
+            isSelected[index] = selected
+        }
+    }
+
     // Function to reorder the chosen dots in an image
     // The user should be able to reorder the dots in an image in the case they
     // are ordered incorrectly
@@ -67,24 +81,24 @@ class Sample(val imageData: Mat?, val balanced: Mat?, var ordering: Bitmap?, val
         Collections.swap(names, from, to)
         Collections.swap(rgb, from, to)
         Collections.swap(greyscale, from, to)
+        Collections.swap(isSelected, from, to)
 
-        if (balanced != null) {
-            // ordering = drawOrdering(balanced, dots) // Uncomment if drawOrdering exists
+        if (imageData != null) {
+            ordering = drawOrdering(imageData, dots)
         }
     }
 }
-
-
-// TODO: Data validation: Check that all images have same number of dots and allow
-// for retaking of images
 
 
 /**
  * A class for abstracting useful functionality when comparing two datasets
  *
  * @property samples A list of samples compiled in one place, to be used for classification
+ * @property selected A list of booleans indicating which of the ROIs are to be used for classification
  */
 class SampleDataset(val samples: MutableList<Sample>) {
+    var selected = mutableListOf<Boolean>().apply {repeat(samples.size) { add(true) } }
+
     fun nameWell(index: Int, name: String): Boolean {
         var worked = true
         for (sample in samples) {
@@ -94,19 +108,27 @@ class SampleDataset(val samples: MutableList<Sample>) {
         return worked
     }
 
+    fun toggleWell(index: Int, selected: Boolean) {
+        for (sample in samples) {
+            sample.toggleSelection(index, selected)
+        }
+    }
+
     fun reorderSample(sampleID: Int, from: Int, to: Int) {
         samples[sampleID].reorder(from, to)
     }
 
     fun fromCSV(uri: Uri, context: Context) {
         val input = context.contentResolver.openInputStream(uri) ?: return
+        samples.clear()
         input.bufferedReader().useLines { lines ->
-            samples.clear()
 
             lines.forEach { line ->
                 try {
                     val tokens = line.split(",")
 
+                    // TODO: This should not be hardcoded, find a way to retrieve the header
+                    // from the first line of the CSV
                     val numberOfDots = 6
                     val expectedColumns = numberOfDots * 4
 
@@ -152,7 +174,10 @@ class SampleDataset(val samples: MutableList<Sample>) {
     ): SampleDataset {
         for (sample in newData.samples) {
             val newNames = sample.rgb.mapIndexed { index, dotColor ->
+                if (!sample.isSelected[index]) return@mapIndexed ""
+
                 val closestRef = referenceData.samples.minByOrNull { refSample ->
+                    if (index >= refSample.rgb.size) return@minByOrNull Double.MAX_VALUE
                     val refColor = refSample.rgb[index]
 
                     when (distance) {
@@ -225,10 +250,11 @@ class DatasetModel : ViewModel() {
         private set
 
     // Your ingest function
-    fun ingest(uris: List<Uri>, context: Context) {
+    fun ingest(uris: List<Uri>, context: Context, selectionStrategy: String) {
         viewModelScope.launch {
             isLoading = true
-            newDataset = ingestImages(uris, context, log=true)
+            newDataset = null
+            newDataset = ingestImages(uris, context, log=false, selectionStrategy=selectionStrategy)
             isLoading = false
         }
     }
@@ -267,10 +293,19 @@ class DatasetModel : ViewModel() {
         if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
 
         val rows = newDataset!!.samples.joinToString("\n") { sample ->
-            val rgbParts = sample.rgb.flatMap { scalar ->
+            // Only include selected wells in the CSV output?
+            // Or include them all but with empty names?
+            // Usually, users expect only selected ones if they "choose which they want".
+
+            val selectedIndices = sample.isSelected.indices.filter { sample.isSelected[it] }
+
+            val rgbParts = selectedIndices.flatMap { index ->
+                val scalar = sample.rgb[index]
                 listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
             }.map { it.toString() }
-            val nameParts = sample.names.map { name ->
+
+            val nameParts = selectedIndices.map { index ->
+                val name = sample.names[index]
                 val escaped = name.replace("\"", "\"\"")
                 if (name.contains(',') || name.contains('\n') || name.contains('"')) {
                     "\"$escaped\""

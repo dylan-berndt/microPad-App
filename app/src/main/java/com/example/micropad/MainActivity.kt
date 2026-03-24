@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,8 +40,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
-import com.example.micropad.ui.camera.CameraScreen
-import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
 import com.example.micropad.ui.camera.CameraScreen
@@ -49,11 +47,10 @@ import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.ImportScreen
 import com.example.micropad.ui.WellNamingScreen
-import com.example.micropad.ui.camera.LabeledImage
+import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.stringToURIs
+import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.urisToString
-import kotlinx.coroutines.launch
-
 import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {

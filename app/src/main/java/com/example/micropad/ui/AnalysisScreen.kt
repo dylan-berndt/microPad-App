@@ -195,10 +195,6 @@ fun WellResultRow(rank: Int, result: ClassificationResult) {
             }
         }
 
-        // Export-to-CSV button
-        val csvData = viewModel.toCsvString("")
-        val initialName = viewModel.importedFileName
-        CsvExportButton(dataRow = csvData, initialFilename = initialName)
         Column(horizontalAlignment = Alignment.End) {
             Text("Score", fontSize = 11.sp, color = Color.Gray)
             Text(

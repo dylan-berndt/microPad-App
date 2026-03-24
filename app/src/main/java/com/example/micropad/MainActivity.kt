@@ -42,6 +42,8 @@ import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.ImportScreen
 import com.example.micropad.ui.WellNamingScreen

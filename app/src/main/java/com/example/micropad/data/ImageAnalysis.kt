@@ -381,6 +381,13 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
         // Dim the entire image to 40% intensity
         image.convertTo(output, -1, 0.4, 0.0)
         
+fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highlightIndex: Int? = null, selectionStates: List<Boolean>? = null): Bitmap {
+    val output = Mat()
+
+    if (highlightIndex != null && highlightIndex in orderedDots.indices) {
+        // Dim the entire image to 40% intensity
+        image.convertTo(output, -1, 0.4, 0.0)
+
         // Ensure alpha is full intensity (255) if it exists (so it's not transparent in Compose)
         if (image.channels() == 4) {
             val channels = ArrayList<Mat>()
@@ -395,11 +402,13 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
         val shrunkenContour = orderedDots[highlightIndex].first
         val center = getCenter(shrunkenContour)
         
+
         // Since dots are shrunken by 0.4 in findDots, we use a radius ~3x larger to cover the whole well
         val area = Imgproc.contourArea(shrunkenContour)
         val shrunkenRadius = sqrt(area / Math.PI)
         val highlightRadius = (shrunkenRadius * 3.0).toInt()
         
+
         Imgproc.circle(mask, center, highlightRadius, Scalar(255.0), Imgproc.FILLED)
         image.copyTo(output, mask)
         mask.release()
@@ -408,6 +417,7 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
     }
 
     for ((index, pair) in orderedDots.withIndex()) {
+        val isSelected = selectionStates?.getOrNull(index) ?: true
         val contour = pair.first
         val center = getCenter(contour)
 
@@ -432,12 +442,25 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
 
         // Draw shrunken contour border
         Imgproc.drawContours(output, listOf(contour), -1, Scalar(0.0, 0.0, 0.0, 255.0), 6)
+        Imgproc.drawContours(output, listOf(contour), -1, Scalar(255.0, 255.0, 255.0, 255.0), -1)
+        // Color and visual style based on selection state
+        val color = if (isSelected) Scalar(0.0, 0.0, 0.0, 255.0) else Scalar(128.0, 128.0, 128.0, 128.0)
+        val textColor = if (isSelected) Scalar(255.0, 255.0, 255.0, 255.0) else Scalar(200.0, 200.0, 200.0, 128.0)
+
+        Imgproc.drawContours(output, listOf(contour), -1, color, if (isSelected) 6 else 2)
 
         // White outline drawn first, then black text on top
+//        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
+//            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
         Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
-            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
-        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
-            fontScale, Scalar(0.0, 0.0, 0.0, 255.0), thickness)
+            fontScale, color, thickness)
+
+        if (!isSelected) {
+            // Draw an X over unselected wells
+            val xSize = radius * 0.8
+            Imgproc.line(output, Point(center.x - xSize, center.y - xSize), Point(center.x + xSize, center.y + xSize), color, 2)
+            Imgproc.line(output, Point(center.x + xSize, center.y - xSize), Point(center.x - xSize, center.y + xSize), color, 2)
+        }
     }
 
     val bitmap = createBitmap(output.cols(), output.rows())
@@ -507,7 +530,7 @@ fun extractContour(image: Mat, contour: MatOfPoint): Mat {
 }
 
 
-fun extractDyeColor(extractedMat: Mat): Scalar {
+fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
     // Convert to HSV for better color filtering
     val hsv = Mat()
     Imgproc.cvtColor(extractedMat, hsv, Imgproc.COLOR_BGR2HSV)
@@ -535,9 +558,29 @@ fun extractDyeColor(extractedMat: Mat): Scalar {
     // Subtract white mask from color mask
     Core.subtract(colorMask, whiteMask, colorMask)
 
-    // Get mean color of remaining pixels in BGR
-    val meanColor = Core.mean(extractedMat, colorMask)
-    return meanColor
+    // Fall back to white if the mask filtered everything out
+    if (Core.countNonZero(colorMask) == 0) {
+        return Scalar(255.0, 255.0, 255.0, 255.0)
+    }
+
+    if (selectionStrategy == "Mean") {
+        // Get mean color of remaining pixels in BGR
+        return Core.mean(extractedMat, colorMask)
+    }
+    else if (selectionStrategy == "Center") {
+        // Get the centroid of the mask using moments
+        val moments = Imgproc.moments(colorMask)
+
+        val cx = (moments.m10 / moments.m00).toInt()
+        val cy = (moments.m01 / moments.m00).toInt()
+
+        // Sample the pixel at the centroid in BGR
+        val pixel = extractedMat.get(cy, cx)
+        return Scalar(pixel[0], pixel[1], pixel[2], 255.0)
+    }
+
+    // Fallback if invalid selection strategy was chosen
+    return Scalar(255.0, 255.0, 255.0, 255.0)
 }
 
 
@@ -545,7 +588,9 @@ fun extractDyeColor(extractedMat: Mat): Scalar {
 // Returns a List of all dots that were found, each element consisting of:
 // MatOfPoint: the dot contour, and Scalar: the extracted color value
 // Attempts to order dots from left to right, then top to bottom
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean, shrink: Float = 0.4f): MutableList<Pair<MatOfPoint, Scalar>> {
+fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
+             log: Boolean, selectionStrategy: String, shrink: Float = 0.4f):
+        MutableList<Pair<MatOfPoint, Scalar>> {
     val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
 
     var i = 0
@@ -572,7 +617,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log:
 
             if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
 
-            val dataPoint = extractDyeColor(extractedData)
+            val dataPoint = extractDyeColor(extractedData, selectionStrategy)
             val pair = Pair(center, dataPoint)
             candidates.add(pair)
             i += 1
@@ -629,16 +674,16 @@ val expectedColors = mutableListOf(
 
 
 // Perform the full preprocessing of the image
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String): Sample {
+fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String, selectionStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
     val shapes = findCalibrationSquares(image, contours, context, log)
     val colors = extractCalibrationColors(shapes)
 
-    val dots = findDots(image, contours, context, log)
+    val dots = findDots(image, contours, context, log, selectionStrategy)
 
     // Requires that control dot is in top left
-    val controlDot = extractDyeColor(extractContour(image, dots[0].first))
+    val controlDot = extractDyeColor(extractContour(image, dots[0].first), selectionStrategy)
 
     // TODO: Normalization modes: MinMax, Z-Score
     var balanced = image
@@ -657,10 +702,10 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
     }
 
     val dotColors = dots.map {
-        extractDyeColor(extractContour(balanced, it.first))
+        extractDyeColor(extractContour(balanced, it.first), selectionStrategy)
     }
 
-    val orderingImage = drawOrdering(balanced, dots)
+    val orderingImage = drawOrdering(image, dots)
     for (color in dotColors) {
         Log.d("Image", "Color: $color")
     }
@@ -690,7 +735,7 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
  *
  * @return SampleDataset, a list of all the Samples obtained from the images
  */
-suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression"): SampleDataset = coroutineScope {
+suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression", selectionStrategy: String = "Mean"): SampleDataset = coroutineScope {
     val images = addresses.map { uri ->
         async(Dispatchers.Default) {
             val inputStream = context.contentResolver.openInputStream(uri)
@@ -706,7 +751,7 @@ suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = 
 
             val cropped = findAndWarpCard(image, context, log) ?: image
 
-            preprocessImage(cropped, context, log, normalizationStrategy)
+            preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
         }
     }.awaitAll()
 

@@ -44,7 +44,7 @@ import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
-import com.example.micropad.ui.CameraScreen
+import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.ImportScreen

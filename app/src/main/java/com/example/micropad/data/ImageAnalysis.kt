@@ -1,29 +1,33 @@
 package com.example.micropad.data
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import org.opencv.core.*
-import org.opencv.imgproc.Imgproc
-import org.opencv.android.Utils
-import androidx.core.graphics.createBitmap
-
-import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-
-import java.io.FileOutputStream
+import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 import java.io.File
-
-import kotlin.math.pow
+import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -370,6 +374,13 @@ fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
 }
 
 
+fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highlightIndex: Int? = null): Bitmap {
+    val output = Mat()
+    
+    if (highlightIndex != null && highlightIndex in orderedDots.indices) {
+        // Dim the entire image to 40% intensity
+        image.convertTo(output, -1, 0.4, 0.0)
+        
 fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highlightIndex: Int? = null, selectionStates: List<Boolean>? = null): Bitmap {
     val output = Mat()
 
@@ -390,11 +401,13 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
         val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
         val shrunkenContour = orderedDots[highlightIndex].first
         val center = getCenter(shrunkenContour)
+        
 
         // Since dots are shrunken by 0.4 in findDots, we use a radius ~3x larger to cover the whole well
         val area = Imgproc.contourArea(shrunkenContour)
         val shrunkenRadius = sqrt(area / Math.PI)
         val highlightRadius = (shrunkenRadius * 3.0).toInt()
+        
 
         Imgproc.circle(mask, center, highlightRadius, Scalar(255.0), Imgproc.FILLED)
         image.copyTo(output, mask)
@@ -427,6 +440,8 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
             center.y + textSize.height / 2.0
         )
 
+        // Draw shrunken contour border
+        Imgproc.drawContours(output, listOf(contour), -1, Scalar(0.0, 0.0, 0.0, 255.0), 6)
         Imgproc.drawContours(output, listOf(contour), -1, Scalar(255.0, 255.0, 255.0, 255.0), -1)
         // Color and visual style based on selection state
         val color = if (isSelected) Scalar(0.0, 0.0, 0.0, 255.0) else Scalar(128.0, 128.0, 128.0, 128.0)

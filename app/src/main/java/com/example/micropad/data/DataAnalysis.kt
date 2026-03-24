@@ -16,7 +16,7 @@ import org.opencv.core.MatOfPoint
 import org.opencv.core.Scalar
 import java.util.Collections
 import kotlin.math.abs
-
+import android.util.Log
 
 /**
  * A class for handling sample data captured from an image of a micropad.
@@ -35,6 +35,14 @@ import kotlin.math.abs
  * @property sampleId The sample number in the CSV file
  * @property referenceId The number the sample is matched with, if any
  */
+
+data class ClassificationResult(
+    val wellIndex: Int,
+    val assignedLabel: String,
+    val closestReferenceName: String,
+    val distanceScore: Double
+)
+
 class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
     // Grey = 0.299R + 0.587G + 0.114B
     var rgb: List<Scalar> = dots.map { it.second }
@@ -48,6 +56,9 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
     var isSelected = mutableStateListOf<Boolean>().apply {
         repeat(rgb.size) { add(true) }
     }
+    var referenceName: String = ""
+    var classificationResults = mutableStateListOf<ClassificationResult>()
+
     var ordering by mutableStateOf(initialOrdering)
         private set
 
@@ -120,49 +131,74 @@ class SampleDataset(val samples: MutableList<Sample>) {
     fun fromCSV(uri: Uri, context: Context) {
         val input = context.contentResolver.openInputStream(uri) ?: return
         samples.clear()
-        input.bufferedReader().useLines { lines ->
 
-            lines.forEach { line ->
-                try {
-                    val tokens = line.split(",")
+        val lines = input.bufferedReader().readLines()
+        if (lines.isEmpty()) return
 
-                    // TODO: This should not be hardcoded, find a way to retrieve the header
-                    // from the first line of the CSV
-                    val numberOfDots = 6
-                    val expectedColumns = numberOfDots * 4
+        // Parse header to extract dye names
+        // Header format: sample_id, reference_name, distance_calculation,
+        // similarity_score, No Dye_r, No Dye_g, No Dye_b, DMGO_r ...
+        val header = lines[0].trimStart('\uFEFF').split(",") // trimStart removes BOM character
+        val metadataColumns = 4 // sample_id, reference_name, distance_calculation, similarity_score
+        val colorColumns = header.drop(metadataColumns) // everything after the 4 metadata cols
 
-                    if (tokens.size != expectedColumns) {
-                        return@forEach
-                    }
+        // Extract unique dye names from headers like "No Dye_r", "No Dye_g", "No Dye_b"
+        val dyeNames = colorColumns
+            .filter { it.endsWith("_r") }
+            .map { it.removeSuffix("_r") }
 
-                    val names = tokens.takeLast(numberOfDots)
+        val numberOfDots = dyeNames.size // should be 6
 
-                    val colors = tokens.take(numberOfDots * 3)
-                        .chunked(3)
-                        .map {
-                            Scalar(
-                                it[0].toDouble(),
-                                it[1].toDouble(),
-                                it[2].toDouble()
-                            )
-                        }
-                        .toMutableList()
+        Log.d("CSV", "Dye names found: $dyeNames")
+        Log.d("CSV", "Number of dots: $numberOfDots")
 
-                    val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
+        // Parse each data row
+        lines.drop(1).forEach { line ->
+            if (line.isBlank()) return@forEach
+            try {
+                val tokens = line.split(",")
 
-                    val sample = Sample(null, null, null, dots)
-                    sample.names.clear()
-                    sample.names.addAll(names)
-                    sample.rgb = colors
+                Log.d("CSV", "Parsing row with ${tokens.size} tokens: $line")
 
-                    samples.add(sample)
-
-                } catch (e: Exception) {
-                    // Invalid row → skip it
+                if (tokens.size < metadataColumns + numberOfDots * 3) {
+                    Log.d("CSV", "Skipping row — not enough columns: ${tokens.size}")
                     return@forEach
                 }
+
+                val referenceName = tokens[1].trim() // e.g. "H2O", "Ni(II)"
+
+                // Extract RGB values starting after the 4 metadata columns
+                val colorTokens = tokens.drop(metadataColumns)
+                val colors = colorTokens
+                    .chunked(3)
+                    .take(numberOfDots)
+                    .map { chunk ->
+                        Scalar(
+                            chunk[0].trim().toDoubleOrNull() ?: 0.0, // R
+                            chunk[1].trim().toDoubleOrNull() ?: 0.0, // G
+                            chunk[2].trim().toDoubleOrNull() ?: 0.0  // B
+                        )
+                    }
+                    .toMutableList()
+
+                val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
+
+                val sample = Sample(null, null, null, dots)
+                sample.names.clear()
+                sample.names.addAll(dyeNames) // assign dye names to wells
+                sample.rgb = colors
+                sample.referenceName = referenceName
+
+                Log.d("CSV", "Added sample: $referenceName with ${colors.size} dots")
+                samples.add(sample)
+
+            } catch (e: Exception) {
+                Log.d("CSV", "Exception parsing row: ${e.message}")
+                return@forEach
             }
         }
+
+        Log.d("CSV", "Total samples loaded: ${samples.size}")
     }
 
     fun classify(
@@ -172,32 +208,31 @@ class SampleDataset(val samples: MutableList<Sample>) {
         mode: String = "RGB"
     ): SampleDataset {
         for (sample in newData.samples) {
+            sample.classificationResults.clear()
+
             val newNames = sample.rgb.mapIndexed { index, dotColor ->
                 if (!sample.isSelected[index]) return@mapIndexed ""
+
+                var bestScore = Double.MAX_VALUE
+                var bestRefName = ""
 
                 val closestRef = referenceData.samples.minByOrNull { refSample ->
                     if (index >= refSample.rgb.size) return@minByOrNull Double.MAX_VALUE
                     val refColor = refSample.rgb[index]
 
-                    when (distance) {
+                    val score = when (distance) {
                         "Euclidean" -> {
                             if (mode == "RGB") {
                                 val dr = dotColor.`val`[0] - refColor.`val`[0]
                                 val dg = dotColor.`val`[1] - refColor.`val`[1]
                                 val db = dotColor.`val`[2] - refColor.`val`[2]
-                                dr * dr + dg * dg + db * db
+                                Math.sqrt(dr * dr + dg * dg + db * db)
                             } else {
-                                val grayDot = 0.299 * dotColor.`val`[0] +
-                                        0.587 * dotColor.`val`[1] +
-                                        0.114 * dotColor.`val`[2]
-                                val grayRef = 0.299 * refColor.`val`[0] +
-                                        0.587 * refColor.`val`[1] +
-                                        0.114 * refColor.`val`[2]
-                                val diff = grayDot - grayRef
-                                diff * diff
+                                val grayDot = 0.299 * dotColor.`val`[0] + 0.587 * dotColor.`val`[1] + 0.114 * dotColor.`val`[2]
+                                val grayRef = 0.299 * refColor.`val`[0] + 0.587 * refColor.`val`[1] + 0.114 * refColor.`val`[2]
+                                Math.abs(grayDot - grayRef)
                             }
                         }
-
                         "Manhattan" -> {
                             if (mode == "RGB") {
                                 val dr = abs(dotColor.`val`[0] - refColor.`val`[0])
@@ -205,21 +240,31 @@ class SampleDataset(val samples: MutableList<Sample>) {
                                 val db = abs(dotColor.`val`[2] - refColor.`val`[2])
                                 dr + dg + db
                             } else {
-                                val grayDot = 0.299 * dotColor.`val`[0] +
-                                        0.587 * dotColor.`val`[1] +
-                                        0.114 * dotColor.`val`[2]
-                                val grayRef = 0.299 * refColor.`val`[0] +
-                                        0.587 * refColor.`val`[1] +
-                                        0.114 * refColor.`val`[2]
+                                val grayDot = 0.299 * dotColor.`val`[0] + 0.587 * dotColor.`val`[1] + 0.114 * dotColor.`val`[2]
+                                val grayRef = 0.299 * refColor.`val`[0] + 0.587 * refColor.`val`[1] + 0.114 * refColor.`val`[2]
                                 abs(grayDot - grayRef)
                             }
                         }
-
                         else -> Double.MAX_VALUE
                     }
+
+                    if (score < bestScore) {
+                        bestScore = score
+                        bestRefName = refSample.referenceName
+                    }
+                    score
                 }
 
-                closestRef?.names?.get(index) ?: ""
+                val label = closestRef?.names?.getOrNull(index) ?: ""
+                sample.classificationResults.add(
+                    ClassificationResult(
+                        wellIndex = index,
+                        assignedLabel = label,
+                        closestReferenceName = bestRefName,
+                        distanceScore = if (bestScore == Double.MAX_VALUE) -1.0 else bestScore
+                    )
+                )
+                label
             }
 
             sample.names.clear()
@@ -283,6 +328,24 @@ class DatasetModel : ViewModel() {
                 }
             }
         }
+    }
+
+    var distanceMetric by mutableStateOf("Euclidean")
+    var colorMode by mutableStateOf("RGB")
+    var classificationRan by mutableStateOf(false)
+
+    fun runClassification() {
+        val ref = referenceDataset
+        val new = newDataset
+        if (ref == null || new == null) return
+        new.classify(ref, new, distanceMetric, colorMode)
+        classificationRan = true
+    }
+
+    fun setReferenceDataset(uri: Uri, context: Context) {
+        val dataset = SampleDataset(mutableListOf())
+        dataset.fromCSV(uri, context)
+        referenceDataset = dataset
     }
 
     // This is never updated with the samples from classify

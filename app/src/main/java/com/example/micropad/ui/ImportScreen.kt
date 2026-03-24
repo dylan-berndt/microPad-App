@@ -17,8 +17,6 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
 
     val distanceOptions = listOf("Euclidean", "Manhattan")
     val colorModeOptions = listOf("RGB", "Grayscale")
-    val normalizationOptions = listOf("MinMax", "Z-Score", "Regression", "None")
-
 
     Column(
         modifier = Modifier
@@ -69,18 +67,6 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
                 FilterChip(
                     selected = viewModel.colorMode == option,
                     onClick = { viewModel.colorMode = option },
-                    label = { Text(option) }
-                )
-            }
-        }
-
-        // Normalization selector
-        Text("Step 4: Choose normalization method")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            normalizationOptions.forEach { option ->
-                FilterChip(
-                    selected = viewModel.normalizationStrategy == option,
-                    onClick = { viewModel.normalizationStrategy = option },
                     label = { Text(option) }
                 )
             }

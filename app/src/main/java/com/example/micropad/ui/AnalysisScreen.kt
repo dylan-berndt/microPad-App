@@ -1,5 +1,14 @@
 package com.example.micropad.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -195,9 +204,33 @@ fun WellResultRow(rank: Int, result: ClassificationResult) {
             }
         }
 
-        // Export-to-CSV button
-        val csvData = viewModel.toCsvString("")
+        // Get the data to be exported (excluding header as writeToCsv adds it or handles existing ones)
+        val csvData = viewModel.toCsvString(includeHeader = false)
         val initialName = viewModel.importedFileName
+        val existingUri = viewModel.importedFileUri
+
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Button to append current results as new references
+            CsvExportButton(
+                dataRows = csvData,
+                type = "references",
+                initialFilename = initialName,
+                existingUri = existingUri
+            )
+
+            // Button to append current results as new samples
+            CsvExportButton(
+                dataRows = csvData,
+                type = "samples",
+                initialFilename = initialName,
+                existingUri = existingUri
+            )
+        }
+    }
+}
         CsvExportButton(dataRow = csvData, initialFilename = initialName)
         Column(horizontalAlignment = Alignment.End) {
             Text("Score", fontSize = 11.sp, color = Color.Gray)

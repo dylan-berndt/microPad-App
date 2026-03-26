@@ -69,12 +69,13 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
             // Export button at the top
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                val csvData = viewModel.toCsvString("r,g,b,label")
-                CsvExportButton(dataRow = csvData, initialFilename = viewModel.importedFileName)
+                val csvData = viewModel.toCsvString()
+                CsvExportButton(type = "references", dataRows = csvData, initialFilename = viewModel.importedFileName)
             }
 
             itemsIndexed(dataset.samples) { sampleIndex, sample ->
                 SampleResultCard(
+                    viewModel,
                     sampleIndex = sampleIndex,
                     results = sample.classificationResults.toList(),
                     distanceMetric = viewModel.distanceMetric
@@ -88,6 +89,7 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
 
 @Composable
 fun SampleResultCard(
+    viewModel: DatasetModel,
     sampleIndex: Int,
     results: List<ClassificationResult>,
     distanceMetric: String
@@ -146,7 +148,7 @@ fun SampleResultCard(
             val ranked = results.sortedBy { it.distanceScore }
 
             ranked.forEachIndexed { rank, result ->
-                WellResultRow(rank = rank + 1, result = result)
+                WellResultRow(viewModel, rank = rank + 1, result = result)
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
@@ -154,7 +156,7 @@ fun SampleResultCard(
 }
 
 @Composable
-fun WellResultRow(rank: Int, result: ClassificationResult) {
+fun WellResultRow(viewModel: DatasetModel, rank: Int, result: ClassificationResult) {
     val scoreText = if (result.distanceScore < 0) "N/A"
     else "%.2f".format(result.distanceScore)
 
@@ -229,9 +231,7 @@ fun WellResultRow(rank: Int, result: ClassificationResult) {
                 existingUri = existingUri
             )
         }
-    }
-}
-        CsvExportButton(dataRow = csvData, initialFilename = initialName)
+
         Column(horizontalAlignment = Alignment.End) {
             Text("Score", fontSize = 11.sp, color = Color.Gray)
             Text(

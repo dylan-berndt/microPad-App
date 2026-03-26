@@ -355,7 +355,8 @@ class DatasetModel : ViewModel() {
             // Reconstructing the row according to the header:
             // sample_id,reference_name,distance_calculation,similarity_score,colors...
             val rowItems = mutableListOf<String>()
-            rowItems.add(sample.sampleId ?: "")
+            // TODO: Add sampleId if we actually need it
+//            rowItems.add(sample.sampleId ?: "")
             rowItems.add(sample.referenceName ?: "")
             rowItems.add("") // distance_calculation
             rowItems.add("") // similarity_score

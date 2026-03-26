@@ -31,7 +31,6 @@ import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
-import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.selects.select
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
@@ -55,26 +54,6 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
     val scrollState = rememberScrollState()
 
-    // Use the names from the first sample as they are kept in sync across all samples
-    val names = dataset.samples.getOrNull(0)?.names ?: mutableStateListOf()
-
-    Column (modifier = Modifier.verticalScroll(scrollState).fillMaxWidth()) {
-        for (i in 0 until numberOfDots) {
-            Box {
-                TextField(
-                    value = if (i < names.size) names[i] else "",
-                    onValueChange = { dataset.nameWell(i, it) },
-                    label = { Text(text = "ROI ${i + 1}") },
-                    placeholder = { Text("Enter a Label") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusChanged { state ->
-                            if (state.isFocused) {
-                                onFocusChange(i)
-                            }
-                        }
-                )
     var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
     var selected = remember { mutableStateListOf<Boolean>().apply {repeat(numberOfDots) { add(true) } } }
 
@@ -207,22 +186,6 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                     modifier = Modifier.weight(1f).align(Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // TODO: Implement reordering in the case ROI are out of order
-                    items(dataset.samples) { sample ->
-                        val displayBitmap = remember(sample, focusedIndex) {
-                            if (focusedIndex != null && sample.balanced != null) {
-                                drawOrdering(sample.balanced, sample.dots, focusedIndex)
-                            } else {
-                                sample.ordering
-                            }
-                        }
-
-                        if (displayBitmap != null) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp)
-                            ) {
                     itemsIndexed(dataset.samples) { index, sample ->
                         var modifier = Modifier
                             .fillMaxWidth(0.95f)
@@ -278,8 +241,6 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                     }
                 }
 
-                WellNamingGrid(dataset) { index ->
-                    focusedIndex = index
                 val tabs: List<@Composable () -> Unit> = listOf(
                     { WellOrderingGrid(dataset, selectedImage) },
                     { WellNamingGrid(dataset) { index -> focusedIndex = index } }

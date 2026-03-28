@@ -1,19 +1,48 @@
 package com.example.micropad.ui.camera
 
 import android.net.Uri
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 
+/**
+ * An enumeration representing the possible labels for an image.
+ *
+ * @property REFERENCE The label for a reference image.
+ * @property SAMPLE The label for a sample image.
+ */
 enum class ImageLabel {
     REFERENCE, SAMPLE
 }
 
+/**
+ * A data class representing a labeled image.
+ *
+ * @property uri The URI of the image.
+ * @property label The label for the image.
+ * @receiver The Composable calling this function.
+ */
 data class LabeledImage(
     val uri: Uri,
     val label: ImageLabel
@@ -21,6 +50,12 @@ data class LabeledImage(
 
 /**
  * Screen to label a captured image and decide whether to capture more or finish.
+ *
+ * @param imageUri The URI of the captured image to label.
+ * @param onBack A callback invoked when the user clicks the "Back" button.
+ * @param onConfirm A callback invoked when the user clicks the "Confirm Label" button.
+ * @receiver The Composable calling this function.
+ * @return Unit
  */
 @Composable
 fun LabelingScreen(
@@ -89,6 +124,12 @@ fun LabelingScreen(
 
 /**
  * Prompt shown after labeling an image to decide next steps.
+ *
+ * @param capturedCount The total number of images captured.
+ * @param onCaptureMore A callback invoked when the user clicks the "Capture More Images" button.
+ * @param onProcess A callback invoked when the user clicks the "Send for Processing" button.
+ * @receiver The Composable calling this function.
+ * @return Unit
  */
 @Composable
 fun NextStepPrompt(

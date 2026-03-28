@@ -1,38 +1,42 @@
 package com.example.micropad.data
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import org.opencv.core.*
-import org.opencv.imgproc.Imgproc
-import org.opencv.android.Utils
-import androidx.core.graphics.createBitmap
-
-import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
+import androidx.core.graphics.createBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-
-import java.io.FileOutputStream
+import org.opencv.android.Utils
+import org.opencv.core.Core
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 import java.io.File
-
-import kotlin.math.pow
+import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
  * Create a bit mapping from image and save to device storage.
  *
- * @param mat [Mat]: Matrix of image columns and rows (colors).
- * @param filename [String]: Filename to save image.
- * @param context [Context]: Context of the Composable calling this function
+ * @param mat: Matrix of image columns and rows (colors).
+ * @param filename: Filename to save image.
+ * @param context: Context of the Composable calling this function
  * @return String? path to saved image
  */
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
@@ -57,8 +61,14 @@ fun saveMat(mat: Mat, filename: String, context: Context): String? {
 }
 
 
-// Finds any enclosed shapes in a given image
-// Useful for rectangle and dot finding processes
+/**
+ * Detect contours around each dye well in the image.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param context: Context of the Composable calling this function.
+ * @param log: Boolean indicating whether or not the function should save snapshots of each.
+ * @returns ArrayList<MatOfPoint> list of contours
+ */
 fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoint> {
     val gray = Mat()
     Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
@@ -111,9 +121,13 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
 
 
 /**
- * Detects the white card in the image, applies a perspective warp,
- * and returns a flattened, top-down crop of just the card.
- * Returns null if no card candidate is found.
+ * Detects the white card in the image, applies a perspective warp, and returns a flattened,
+ * top-down crop of just the card.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param context: Context of the Composable calling this function.
+ * @param log: Boolean indicating whether the function should save snapshots of each.
+ * @return Null if no card candidate is found.
  */
 fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
     val hsv = Mat()
@@ -162,8 +176,16 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
 }
 
 
-// Attempts to find the calibration rectangle in the image
-// Returns a pair consisting of the rectangle portion of the image and its bounding box
+/**
+ * Attempts to find the calibration rectangle in the image.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param contours: List of contours found in the image.
+ * @param context: Context of the Composable calling this function.
+ * @param log: Boolean indicating whether the function should save snapshots of each.
+ * @return MutableList<Pair<Mat, Point>> A pair consisting of the rectangle portion of the image and
+ * its bounding box
+ */
 fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): MutableList<Pair<Mat, Point>> {
 
     // --- Step 1: collect all square-ish candidates ---
@@ -207,8 +229,15 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
         return mutableListOf()
     }
 
-    // --- Step 3: among all combinations of 4, pick the most collinear group ---
-    // Collinearity score: fit a line through 4 points, sum of squared residuals
+    // --- Step 3: find the 4 closest points ---
+    /**
+     * Calculate the collinearity score of a set of points.
+     * Among all combinations of 4, pick the most collinear group.
+     * Higher scores indicate more collinearity.
+     *
+     * @param pts: List of points to score.
+     * @return Double score.
+     */
     fun collinearityScore(pts: List<Point>): Double {
         // Use PCA / linear regression on the 4 centers
         val cx = pts.map { it.x }.average()
@@ -232,6 +261,13 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
     }
 
     // Also check that the 4 points are roughly evenly spaced
+    /**
+     * Calculate the spacing score of a set of points.
+     * Among all combinations of 4, pick the most evenly spaced group.
+     *
+     * @param pts: List of points to score.
+     * @return Double score.
+     */
     fun spacingScore(pts: List<Point>): Double {
         val cx = pts.map { it.x }.average()
         val cy = pts.map { it.y }.average()
@@ -276,7 +312,12 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
 }
 
 
-// Extract the calibration colors from a calibration region
+/**
+ * Extract the calibration colors from a calibration region.
+ *
+ * @param shapes: List of calibration regions.
+ * @return MutableList<Scalar> List of colors.
+ */
 fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList<Scalar> {
     val colors = mutableListOf<Scalar>()
 
@@ -289,13 +330,27 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
 }
 
 
-// Rebalances the image given a set of the found color points and the intended reference color
+/**
+ * Rebalances the image given a set of the found color points and the intended reference color
+ * points.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param found: List of found color points.
+ * @param reference: List of intended reference color points.
+ * @return Mat rebalanced image.
+ */
 fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Mat {
     val balanced = image.clone()
 
-    // Find a linear fit that tries to push image brightness towards calibration standard
-    // Cannot always find a perfect match, but that's also bc I don't know the expected RGB
-    // of each of the calibration points
+    /**
+     * Find a linear fit that tries to push image brightness towards calibration standard.
+     * Cannot always find a perfect match because this function does not know the expected RGB
+     * values.
+     *
+     * @param measured: List of measured values.
+     * @param expected: List of expected values.
+     * @return Pair<Double, Double>: (scale, offset)
+     */
     fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
         val n = measured.size
         val sumX = measured.sum()
@@ -344,14 +399,25 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
 }
 
 
+/**
+ * Get the center of a contour.
+ *
+ * @param contour: Contour to get center of.
+ * @return Point: Center of contour.
+ */
 fun getCenter(contour: MatOfPoint): Point {
     val m = Imgproc.moments(contour)
     return Point(m.m10 / m.m00, m.m01 / m.m00)
 }
 
 
-// Used to shrink a contour around its center
-// Primarily exists to extract the center of the dye dots
+/**
+ * Shrink a contour around its center to extract the center of the dye dots.
+ *
+ * @param contour: Contour to shrink.
+ * @param shrink: Shrink factor.
+ * @return MatOfPoint: Shrunken contour.
+ */
 fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
     val center = getCenter(contour)
 
@@ -370,6 +436,15 @@ fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
 }
 
 
+/**
+ * Draw the ordering of the dots on the image.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param orderedDots: List of ordered dots.
+ * @param highlightIndex: Index of dot to highlight.
+ * @param selectionStates: List of selection states.
+ * @return Bitmap: Image with ordering drawn.
+ */
 fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highlightIndex: Int? = null, selectionStates: List<Boolean>? = null): Bitmap {
     val output = Mat()
 
@@ -403,6 +478,7 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
         image.copyTo(output)
     }
 
+    // Loop through dots and draw them on the image
     for ((index, pair) in orderedDots.withIndex()) {
         val isSelected = selectionStates?.getOrNull(index) ?: true
         val contour = pair.first
@@ -435,8 +511,8 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
         Imgproc.drawContours(output, listOf(contour), -1, color, if (isSelected) 6 else 2)
 
         // White outline drawn first, then black text on top
-//        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
-//            fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness)
+        // Imgproc.drawContours(output, listOf(contour), -1
+        // fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness
         Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
             fontScale, color, thickness)
 
@@ -456,6 +532,13 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
 }
 
 
+/**
+ * Assign a grid index to each dot.
+ *
+ * @param dots: List of dots.
+ * @return List<Pair<Pair<MatOfPoint, Scalar>, Pair<Int, Int>>>: List of pairs of dots and their
+ * grid indices.
+ */
 fun assignGridIndices(
     dots: List<Pair<MatOfPoint, Scalar>>
 ): List<Pair<Pair<MatOfPoint, Scalar>, Pair<Int, Int>>> {
@@ -479,6 +562,7 @@ fun assignGridIndices(
     val sortedByY = centers.sortedBy { it.second.y }
     val rows = mutableListOf<MutableList<Pair<Pair<MatOfPoint, Scalar>, Point>>>()
 
+    // Sort points in each row by X proximity
     for (item in sortedByY) {
         val matchingRow = rows.find { row ->
             val avgY = row.map { it.second.y }.average()
@@ -503,6 +587,13 @@ fun assignGridIndices(
 }
 
 
+/**
+ * Extract the dye color from a contour.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param contour: Contour to extract color from.
+ * @return Scalar: Color.
+ */
 fun extractContour(image: Mat, contour: MatOfPoint): Mat {
     val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
     Imgproc.drawContours(mask, listOf(contour), 0,
@@ -515,6 +606,13 @@ fun extractContour(image: Mat, contour: MatOfPoint): Mat {
 }
 
 
+/**
+ * Extract the dye color from an image.
+ *
+ * @param extractedMat: Matrix of image columns and rows (colors).
+ * @param selectionStrategy: Strategy to use for color extraction.
+ * @return Scalar: Color.
+ */
 fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
     // Convert to HSV for better color filtering
     val hsv = Mat()
@@ -569,10 +667,17 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
 }
 
 
-// Finds the donut shapes in the preprocessed image
-// Returns a List of all dots that were found, each element consisting of:
-// MatOfPoint: the dot contour, and Scalar: the extracted color value
-// Attempts to order dots from left to right, then top to bottom
+/**
+ * Find the donut shapes in the preprocessed image.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param contours: List of contours found in the image.
+ * @param context: Context of the Composable calling this function.
+ * @param log: Boolean indicating whether the function should save snapshots of each.
+ * @param selectionStrategy: Strategy to use for color extraction.
+ * @param shrink: Shrink factor.
+ * @return MutableList<Pair<MatOfPoint, Scalar>>: List of dots.
+ */
 fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
              log: Boolean, selectionStrategy: String, shrink: Float = 0.4f):
         MutableList<Pair<MatOfPoint, Scalar>> {
@@ -594,6 +699,7 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
         val circularity = 4 * Math.PI * area / (perimeter * perimeter)
         val perimeterError = abs(1 - circularity)
 
+        // Check error tolerance
         if (areaError < 0.3 && perimeterError < 0.4 && area > 100) {
             Log.d("Image", "Dots " + areaError.toString() + " " + perimeterError.toString())
 
@@ -609,10 +715,12 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
         }
     }
 
+    // Sort candidates by size
     val sizeSorted = candidates
         .map { it to Pair(it, Imgproc.contourArea(it.first)) }
         .sortedByDescending { it.second.second }
 
+    // Candidate locations
     val top = sizeSorted.take(4)
     val areas = top.map { it.second.second }
     val medianArea = areas.sorted()[areas.size / 2]
@@ -649,7 +757,9 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
 }
 
 
-// Colors used on dye sheet, arranged in BGR ordering
+/**
+ * List of expected colors.
+ */
 val expectedColors = mutableListOf(
     Scalar(0.0, 0.0, 0.0),       // Black
     Scalar(255.0, 255.0, 0.0),   // Cyan (B=255, G=255, R=0)
@@ -658,7 +768,16 @@ val expectedColors = mutableListOf(
 )
 
 
-// Perform the full preprocessing of the image
+/**
+ * Preprocess an image.
+ *
+ * @param image: Matrix of image columns and rows (colors).
+ * @param context: Context of the Composable calling this function.
+ * @param log: Boolean indicating whether the function should save snapshots of each.
+ * @param normalizationStrategy: Strategy to use for color normalization.
+ * @param selectionStrategy: Strategy to use for color extraction.
+ * @return Sample: Preprocessed image.
+ */
 fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String, selectionStrategy: String): Sample {
     val contours = findContours(image, context, log)
 
@@ -670,7 +789,6 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
     // Requires that control dot is in top left
     val controlDot = extractDyeColor(extractContour(image, dots[0].first), selectionStrategy)
 
-    // TODO: Normalization modes: MinMax, Z-Score
     var balanced = image
     if (normalizationStrategy == "Regression") {
         balanced = rebalanceImage(image, colors, expectedColors)
@@ -701,24 +819,25 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
 /**
  * A function for taking in a list of image locations and returning a list of completely
  * preprocessed images in the form of a list of Samples. This includes extracting the colors
- * from each of the dye spots in each image
+ * from each of the dye spots in each image.
  *
  * @param addresses The Uris identifying the locations of all the images that we want
- * to preprocess
+ * to preprocess.
  * @param context The context of the Composable calling this function,
- * obtained from LocalContext.current. This is only used for logging
+ * obtained from LocalContext.current. This is only used for logging.
  *
  * @param log Boolean indicating whether or not the function should save snapshots of each
- * step in the preprocessing algorithm
+ * step in the preprocessing algorithm.
  * @param normalizationStrategy Identifies how the algorithm should normalize the image data.
  * Options are:
  *  Regression: Rebalances using a linear regression to perform a min-max normalization
- *  on the whole RGB gamut
+ *  on the whole RGB gamut.
  *  MinMax: Performs normalization by pulling the maximum and minimum observed colors to the
- *  expected minimums and maximums separately for each channel
- *  Z-Score:
+ *  expected minimums and maximums separately for each channel.
+ *  Z-Score: Performs normalization by subtracting the mean and dividing by the standard
+ *  deviation.
  *
- * @return SampleDataset, a list of all the Samples obtained from the images
+ * @return A SampleDataset containing the preprocessed images.
  */
 suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression", selectionStrategy: String = "Mean"): SampleDataset = coroutineScope {
     val images = addresses.map { uri ->

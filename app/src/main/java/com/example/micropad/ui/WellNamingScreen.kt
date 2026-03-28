@@ -1,23 +1,44 @@
 package com.example.micropad.ui
 
-import android.R.style.Theme
 import android.net.Uri
-import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -29,26 +50,45 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
+import com.example.micropad.R
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
-import kotlinx.coroutines.selects.select
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
-import com.example.micropad.R
 
-// Convert URI list to String
+/**
+ * Convert a list of URIs to a comma-separated string.
+ *
+ * @param addresses The list of URIs to convert.
+ * @receiver The Composable calling this function.
+ * @return A string representation of the URIs.
+ */
 fun urisToString(addresses: List<Uri>): String {
     val uriStrings = addresses.map { it.toString() }
     return Uri.encode(uriStrings.joinToString(","))
 }
 
-// Convert String back to URI list
+/**
+ * Convert a comma-separated string of URIs to a list of URIs.
+ *
+ * @param data The comma-separated string of URIs.
+ * @receiver The Composable calling this function.
+ * @return A list of URIs.
+ */
 fun stringToURIs(data: String): List<Uri> {
     return if (data.isNotEmpty()) {
         data.split(",").map { it.toUri() }
     } else emptyList()
 }
 
+/**
+ * Display a grid of well names.
+ *
+ * @param dataset The dataset to display.
+ * @param onFocusChange A callback to invoke when the user focuses on a well name.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
@@ -94,7 +134,14 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
 }
 
 
-// Creates a tab for editing the ordering of dye dots in the dataset
+/**
+ * Display a grid of well names.
+ *
+ * @param dataset The dataset to display.
+ * @param sampleIndex The index of the sample to display.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     var from by remember { mutableIntStateOf(-1) };
@@ -155,7 +202,15 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     }
 }
 
-// Main composable for Well Naming screen
+/**
+ * Display a screen for naming ROIs.
+ *
+ * @param addresses The list of image URIs to display.
+ * @param viewModel The view model for the app.
+ * @param navController The navigation controller for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current

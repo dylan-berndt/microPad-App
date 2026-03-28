@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -40,22 +40,24 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.micropad.data.CsvImportButton
-import com.example.micropad.ui.camera.CameraScreen
-import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.ui.AnalysisScreen
-import com.example.micropad.ui.camera.CameraScreen
-import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.GalleryPickerScreen
 import com.example.micropad.ui.ImportScreen
 import com.example.micropad.ui.WellNamingScreen
-import com.example.micropad.ui.camera.LabeledImage
+import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.stringToURIs
+import com.example.micropad.ui.theme.MicroPadTheme
 import com.example.micropad.ui.urisToString
-import kotlinx.coroutines.launch
-
 import org.opencv.android.OpenCVLoader
 
+/**
+ * Creates the app and sets up the navigation.
+ *
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 class MainActivity : ComponentActivity() {
     private val sharedViewModel: DatasetModel by viewModels()
 
@@ -75,6 +77,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Sets up the navigation for the app.
+ *
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun MicroPadApp(viewModel: DatasetModel) {
     val navController = rememberNavController()
@@ -98,6 +107,14 @@ fun MicroPadApp(viewModel: DatasetModel) {
     }
 }
 
+/**
+ * Display the main screen of the app.
+ *
+ * @param navController The navigation controller for the app.
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
@@ -137,6 +154,14 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     }
 }
 
+/**
+ * An enum representing the different destinations in the app.
+ *
+ * @property label The label for the destination.
+ * @property icon The icon for the destination.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 enum class AppDestinations(
     val label: String,
     val icon: ImageVector,
@@ -146,6 +171,15 @@ enum class AppDestinations(
     CAMERA("Camera", Icons.Default.Add)
 }
 
+/**
+ * Show user the main screen of the app.
+ *
+ * @param name The name to display.
+ * @param modifier The modifier to apply to the layout.
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier, viewModel: DatasetModel) {
 
@@ -184,6 +218,12 @@ fun Greeting(name: String, modifier: Modifier = Modifier, viewModel: DatasetMode
     }
 }
 
+/**
+ * Preview of the main screen of the app (Android Studio functionality; not used by app).
+ *
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {

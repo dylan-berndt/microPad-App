@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -224,7 +225,7 @@ class SampleDataset(val samples: MutableList<Sample>) {
 }
 
 class DatasetModel : ViewModel() {
-    var labelingTargetIsReference = true
+    var labelingTargetIsReference by mutableStateOf(true)
 
     // Persistent Session State
     val pendingReferences = mutableStateListOf<LabeledImage>()
@@ -255,8 +256,8 @@ class DatasetModel : ViewModel() {
             
             // 1. Process References
             if (pendingReferences.isNotEmpty()) {
-                val uris = pendingReferences.map { it.uri }
-                val dataset = ingestImages(uris, context, log = false)
+                val refUris = pendingReferences.toList().map { it.uri }
+                val dataset = ingestImages(refUris, context, log = false)
                 dataset.samples.forEachIndexed { i, sample -> 
                     sample.type = "Reference"
                     sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
@@ -266,8 +267,8 @@ class DatasetModel : ViewModel() {
 
             // 2. Process Samples
             if (pendingSamples.isNotEmpty()) {
-                val uris = pendingSamples.map { it.uri }
-                val dataset = ingestImages(uris, context, log = false)
+                val sampleUris = pendingSamples.toList().map { it.uri }
+                val dataset = ingestImages(sampleUris, context, log = false)
                 dataset.samples.forEachIndexed { i, sample ->
                     sample.type = "Sample"
                     sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
@@ -307,6 +308,16 @@ class DatasetModel : ViewModel() {
         val ref = referenceDataset; val new = newDataset
         if (ref == null || new == null) return
         new.classify(ref, new, distanceMetric, colorMode, normalizationStrategy)
+    }
+
+    fun reset() {
+        pendingReferences.clear()
+        pendingSamples.clear()
+        temporaryUris = emptyList()
+        referenceDataset = null
+        newDataset = null
+        importedFileName = "data.csv"
+        importedFileUri = null
     }
 
     fun toCsvString(header: String = "", includeHeader: Boolean = true): String {

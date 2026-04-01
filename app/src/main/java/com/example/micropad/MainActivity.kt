@@ -13,7 +13,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -121,54 +120,47 @@ fun MicroPadApp(viewModel: DatasetModel) {
 
 @Composable
 fun FrontPage(navController: NavController, viewModel: DatasetModel) {
-    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
-
-    NavigationSuiteScaffold(
-        navigationSuiteItems = {
-            AppDestinations.entries.forEach {
-                item(
-                    icon = { Icon(it.icon, contentDescription = it.label) },
-                    label = { Text(it.label) },
-                    selected = it == currentDestination,
-                    onClick = { currentDestination = it }
-                )
-            }
-        }
-    ) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            bottomBar = {
-                val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) && 
-                                 viewModel.pendingSamples.isNotEmpty()
-                
-                if (currentDestination == AppDestinations.HOME) {
-                    Button(
-                        onClick = { navController.navigate("namingScreen") },
-                        enabled = canProceed,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                            .height(56.dp)
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            val hasData = viewModel.pendingReferences.isNotEmpty() || 
+                          viewModel.pendingSamples.isNotEmpty() ||
+                          viewModel.referenceDataset != null
+            
+            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) && 
+                             viewModel.pendingSamples.isNotEmpty()
+            
+            Column {
+                if (hasData) {
+                    OutlinedButton(
+                        onClick = { viewModel.reset() },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text("Next: Process & Name Wells")
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restart Data Upload")
                     }
                 }
-            }
-        ) { innerPadding ->
-            when (currentDestination) {
-                AppDestinations.HOME -> HomePage(
-                    modifier = Modifier.padding(innerPadding),
-                    viewModel = viewModel,
-                    navController = navController
-                )
-                AppDestinations.GALLERY -> GalleryPickerScreen(navController)
-                AppDestinations.CAMERA -> CameraScreen(onImagesProcessed = { uris ->
-                    viewModel.temporaryUris = uris
-                    viewModel.labelingTargetIsReference = false
-                    navController.navigate("labelingScreen")
-                })
+                
+                Button(
+                    onClick = { navController.navigate("namingScreen") },
+                    enabled = canProceed,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .height(56.dp)
+                ) {
+                    Text("Next: Process & Name Wells")
+                }
             }
         }
+    ) { innerPadding ->
+        HomePage(
+            modifier = Modifier.padding(innerPadding),
+            viewModel = viewModel,
+            navController = navController
+        )
     }
 }
 
@@ -250,7 +242,7 @@ fun DataAcquisitionCard(
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onGallery, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.Collections, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Gallery", fontSize = 12.sp)
                 }
@@ -266,13 +258,4 @@ fun DataAcquisitionCard(
             }
         }
     }
-}
-
-enum class AppDestinations(
-    val label: String,
-    val icon: ImageVector,
-) {
-    HOME("Start", Icons.Default.Home),
-    GALLERY("Gallery", Icons.Default.Collections),
-    CAMERA("Camera", Icons.Default.PhotoCamera)
 }

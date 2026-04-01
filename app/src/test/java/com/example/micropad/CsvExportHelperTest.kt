@@ -19,22 +19,43 @@ import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
 
+/**
+ * Test class for the CSV export helper function.
+ */
 class CsvExportHelperTest {
 
+    /**
+     * A temporary folder to use for testing.
+     */
     @get:Rule
     val tempFolder = TemporaryFolder()
 
+    /**
+     * A mock context to use for testing.
+     */
     @Mock
     lateinit var mockContext: Context
 
+    /**
+     * A mock content resolver to use for testing.
+     */
     @Mock
     lateinit var mockContentResolver: ContentResolver
 
+    /**
+     * A mock URI to use for testing.
+     */
     @Mock
     lateinit var mockUri: Uri
 
+    /**
+     * A test file to use for testing.
+     */
     private lateinit var testFile: File
 
+    /** 
+     * Set up the test environment.
+     */
     @Before
     fun setup() {
         MockitoAnnotations.openMocks(this)
@@ -44,6 +65,11 @@ class CsvExportHelperTest {
         testFile = tempFolder.newFile("test_dataset.csv")
     }
 
+    /**
+     * Set up the mock file content.
+     * 
+     * @param content The content to use for the mock file.
+     */
     private fun setupMockFileContent(content: String) {
         `when`(mockContentResolver.openInputStream(mockUri)).thenAnswer {
             ByteArrayInputStream(content.toByteArray())
@@ -53,6 +79,16 @@ class CsvExportHelperTest {
         }
     }
 
+    /**
+     * Test adding references to an existing file.
+     * 
+     * Verifies that:
+     * - The header remains intact.
+     * - Old references are preserved.
+     * - New references are correctly appended.
+     * - Sample data is preserved.
+     * - A blank row separates sections.
+     */
     @Test
     fun `test adding references to existing file`() {
         val existingContent = """
@@ -84,6 +120,11 @@ class CsvExportHelperTest {
         assertTrue("Reference should be before blank row", resultLines.subList(0, blankIndex).any { it.startsWith("2,Ni(II)") })
     }
 
+    /**
+     * Test adding samples to an existing file.
+     * 
+     * Verifies that new sample rows are correctly appended after the blank separator row.
+     */
     @Test
     fun `test adding samples to existing file`() {
         val existingContent = """
@@ -106,6 +147,11 @@ class CsvExportHelperTest {
         assertTrue("Sample should be after blank row", resultLines.subList(blankIndex + 1, resultLines.size).any { it.startsWith("S2,Test") })
     }
 
+    /**
+     * Test duplicate prevention during CSV export.
+     * 
+     * Verifies that adding an identical row doesn't result in duplicate entries in the file.
+     */
     @Test
     fun `test duplicate prevention`() {
         val duplicateRow = "1,H2O,,,255,255,255,255,255,255,225,225,225,255,255,255,255,255,255,255,255,200"

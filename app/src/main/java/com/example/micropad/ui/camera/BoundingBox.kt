@@ -17,6 +17,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/**
+ * Presents user with boxes where to align the calibration dots during image capture.
+ */
 @Composable
 fun BoundingBoxOverlay() {
     Box(modifier = Modifier.fillMaxSize()) {

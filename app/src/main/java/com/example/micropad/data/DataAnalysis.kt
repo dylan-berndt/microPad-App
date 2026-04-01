@@ -1,27 +1,28 @@
 package com.example.micropad.data
 
-import java.util.Collections
-
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
-import kotlin.math.abs
-import android.util.Log
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import java.util.Collections
 
 /**
  * A class for handling sample data captured from an image of a micropad.
+ *
+ * @property wellIndex The ID value for the dye well.
+ * @property assignedLabel The text value used for that dye well.
+ * @property closestReferenceName The nearest reference by computed distance.
+ * @property distanceScore The computed distance between sample and reference.
  */
 data class ClassificationResult(
     val wellIndex: Int,
@@ -30,6 +31,14 @@ data class ClassificationResult(
     val distanceScore: Double
 )
 
+/**
+ * A sample to hold data on images.
+ * 
+ * @property imageData The original image data obtained for the sample.
+ * @property balanced The rebalanced image used for dye well extraction.
+ * @property initialOrdering An optional bitmap showing the initial dot ordering.
+ * @property dots The identified dots, as a list of contour and color pairs.
+ */
 class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
     // Grey = 0.299R + 0.587G + 0.114B
     var rgb: List<Scalar> = dots.map { it.second }
@@ -49,6 +58,9 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
 
     /**
      * Normalizes the dot data based on the chosen strategy and mode.
+     *
+     * @param strategy The user-selected normalization: MinMax, Z-Score, Regression, or none.
+     * @param mode Normalize in RGB or grayscale.
      * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
      */
     fun getNormalizedData(strategy: String, mode: String): List<DoubleArray> {
@@ -90,6 +102,11 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
         return normalized
     }
 
+    /**
+     * Ensure selected dye well labels are unique and filled.
+     * 
+     * @return True if labels are valid, false otherwise.
+     */
     fun validateLabels(): Boolean {
         val activeNames = names.filterIndexed { index, _ -> isSelected[index] }
         if (activeNames.any { it.isBlank() }) return false
@@ -97,6 +114,13 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
         return true
     }
 
+    /**
+     * Reassigns a label to a specific well index.
+     * 
+     * @param index The index of the well.
+     * @param newLabel The new label to assign.
+     * @return True if reassignment was successful, false if label already exists elsewhere or index is invalid.
+     */
     fun reassignLabel(index: Int, newLabel: String): Boolean {
         if (index !in names.indices) return false
         if (names.contains(newLabel) && names[index] != newLabel) return false
@@ -105,12 +129,24 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
         return true
     }
 
+    /**
+     * Toggles whether a well is selected for analysis.
+     * 
+     * @param index The index of the well.
+     * @param selected Whether the well should be selected.
+     */
     fun toggleSelection(index: Int, selected: Boolean) {
         if (index in isSelected.indices) {
             isSelected[index] = selected
         }
     }
 
+    /**
+     * Swaps the position of two dots in the sample.
+     * 
+     * @param from The original index of the dot.
+     * @param to The new index to swap with.
+     */
     fun reorder(from: Int, to: Int) {
         Collections.swap(dots, from, to)
         Collections.swap(names, from, to)
@@ -124,9 +160,24 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
     }
 }
 
+/**
+ * A collection of samples, providing methods for bulk operations and dataset-wide analysis.
+ * 
+ * @property samples The list of samples in this dataset.
+ */
 class SampleDataset(val samples: MutableList<Sample>) {
+    /**
+     * Tracks which samples are currently selected.
+     */
     var selected = mutableListOf<Boolean>().apply {repeat(samples.size) { add(true) } }
 
+    /**
+     * Updates the name of a well across all samples in the dataset.
+     * 
+     * @param index The index of the well.
+     * @param name The new name for the well.
+     * @return True if the rename was successful for all samples.
+     */
     fun nameWell(index: Int, name: String): Boolean {
         var worked = true
         for (sample in samples) {
@@ -135,16 +186,35 @@ class SampleDataset(val samples: MutableList<Sample>) {
         return worked
     }
 
+    /**
+     * Toggles the selection status of a specific well index across all samples.
+     * 
+     * @param index The index of the well.
+     * @param selected The new selection status.
+     */
     fun toggleWell(index: Int, selected: Boolean) {
         for (sample in samples) {
             sample.toggleSelection(index, selected)
         }
     }
 
+    /**
+     * Triggers a reorder operation on a specific sample.
+     * 
+     * @param sampleID The index of the sample in the dataset.
+     * @param from The starting index of the dot.
+     * @param to The target index for the swap.
+     */
     fun reorderSample(sampleID: Int, from: Int, to: Int) {
         samples[sampleID].reorder(from, to)
     }
 
+    /**
+     * Populates the dataset by parsing a CSV file.
+     * 
+     * @param uri The URI of the CSV file.
+     * @param context The Android context for content resolution.
+     */
     fun fromCSV(uri: Uri, context: Context) {
         val input = context.contentResolver.openInputStream(uri) ?: return
         samples.clear()
@@ -195,6 +265,16 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
+    /**
+     * Performs classification on a target dataset using a reference dataset.
+     * 
+     * @param referenceData The dataset containing labeled reference samples.
+     * @param newData The dataset to be classified.
+     * @param distance The distance metric to use (e.g., "Euclidean", "Manhattan").
+     * @param mode The color mode for comparison ("RGB" or grayscale).
+     * @param normalizationStrategy The strategy for normalizing feature vectors.
+     * @return The classified dataset.
+     */
     fun classify(
         referenceData: SampleDataset,
         newData: SampleDataset,
@@ -268,21 +348,45 @@ class SampleDataset(val samples: MutableList<Sample>) {
         return newData
     }
 
+    /**
+     * Checks if the dataset contains any samples.
+     * 
+     * @return True if the samples list is empty.
+     */
     fun isEmpty(): Boolean {
         return samples.isEmpty()
     }
 }
 
+/**
+ * ViewModel for managing the state of datasets across different screens in the app.
+ */
 class DatasetModel : ViewModel() {
+    /**
+     * The dataset currently being processed or edited.
+     */
     var newDataset by mutableStateOf<SampleDataset?>(null)
         private set
 
+    /**
+     * The dataset used as a reference for classification.
+     */
     var referenceDataset by mutableStateOf<SampleDataset?>(null)
         private set
 
+    /**
+     * Indicates whether a long-running operation (like ingestion) is in progress.
+     */
     var isLoading by mutableStateOf(false)
         private set
 
+    /**
+     * Ingests a list of image URIs to create a new dataset.
+     * 
+     * @param uris List of image URIs to process.
+     * @param context Android context for image processing.
+     * @param selectionStrategy The extraction strategy to use during ingestion.
+     */
     fun ingest(uris: List<Uri>, context: Context, selectionStrategy: String) {
         viewModelScope.launch {
             isLoading = true
@@ -292,18 +396,32 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    /**
+     * Checks if all samples in the current dataset have valid labels.
+     * 
+     * @return True if all active labels are valid.
+     */
     fun allSamplesValid(): Boolean {
         return newDataset?.samples?.all { it.validateLabels() } ?: false
     }
 
+    /**
+     * The name of the file currently imported (e.g., for CSV export defaults).
+     */
     var importedFileName by mutableStateOf("data.csv")
         private set
 
+    /**
+     * The URI of the currently imported file.
+     */
     var importedFileUri by mutableStateOf<Uri?>(null)
         private set
 
     /**
-     * Track imported CSV file for use in exporting to it.
+     * Updates the tracked import file and extracts its display name.
+     * 
+     * @param uri The URI of the file.
+     * @param context Context for resolving the file name.
      */
     fun setImportedFile(uri: Uri, context: Context) {
         importedFileUri = uri
@@ -318,11 +436,29 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    /**
+     * User-selected distance metric for classification.
+     */
     var distanceMetric by mutableStateOf("Euclidean")
+    
+    /**
+     * User-selected color mode for classification.
+     */
     var colorMode by mutableStateOf("RGB")
+    
+    /**
+     * User-selected normalization strategy for classification.
+     */
     var normalizationStrategy by mutableStateOf("None")
+    
+    /**
+     * Tracks whether classification has been executed on the current dataset.
+     */
     var classificationRan by mutableStateOf(false)
 
+    /**
+     * Executes classification using the current settings and datasets.
+     */
     fun runClassification() {
         val ref = referenceDataset
         val new = newDataset
@@ -331,17 +467,23 @@ class DatasetModel : ViewModel() {
         classificationRan = true
     }
 
+    /**
+     * Sets the reference dataset by loading it from a CSV file.
+     * 
+     * @param uri The URI of the CSV file.
+     * @param context Context for file access.
+     */
     fun setReferenceDataset(uri: Uri, context: Context) {
         val dataset = SampleDataset(mutableListOf())
         dataset.fromCSV(uri, context)
         referenceDataset = dataset
     }
 
-    val samples = mutableStateListOf<Sample>()
-
     /**
-     * Provide a proper CSV string to CsvExportButton functionality 
-     * based on SampleDataset.classify().
+     * Generates a CSV string representation of the current dataset.
+     * 
+     * @param includeHeader Whether to include the column headers in the output.
+     * @return A formatted CSV string.
      */
     fun toCsvString(includeHeader: Boolean = true): String {
         if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
@@ -349,14 +491,9 @@ class DatasetModel : ViewModel() {
         val header = "sample_id,reference_name,distance_calculation,similarity_score,No Dye_r,No Dye_g,No Dye_b,DMGO_r,DMGO_g,DMGO_b,XO_r,XO_g,XO_b,Phen_r,Phen_g,Phen_b,DCP_r,DCP_g,DCP_b,PAR_r,PAR_g,PAR_b"
 
         val rows = newDataset!!.samples.joinToString("\n") { sample ->
-            // Current implementation assumes fixed number of color columns for the entire row
-            // matching the header structure.
-            
             // Reconstructing the row according to the header:
             // sample_id,reference_name,distance_calculation,similarity_score,colors...
             val rowItems = mutableListOf<String>()
-            // TODO: Add sampleId if we actually need it
-//            rowItems.add(sample.sampleId ?: "")
             rowItems.add(sample.referenceName ?: "")
             rowItems.add("") // distance_calculation
             rowItems.add("") // similarity_score

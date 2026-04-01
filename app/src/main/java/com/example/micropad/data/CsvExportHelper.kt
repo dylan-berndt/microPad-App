@@ -15,6 +15,7 @@ import java.io.IOException
 
 /**
  * Provide a UI button to launch a file picker for creating a new CSV or appending to an existing one.
+ *
  * @param dataRows The new data rows to be added (newline separated).
  * @param type Either "references" or "samples".
  * @param initialFilename Default filename if creating a new file.

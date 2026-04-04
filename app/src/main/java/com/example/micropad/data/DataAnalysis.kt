@@ -77,7 +77,7 @@ class Sample(
     /**
      * Normalizes the dot data based on the chosen strategy and mode.
      *
-     * @param strategy The user-selected normalization: MinMax, Z-Score, Regression, or none.
+     * @param strategy The user-selected normalization: MinMax, Z-Score, or none.
      * @param mode Normalize in RGB or grayscale.
      * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
      */
@@ -106,9 +106,6 @@ class Sample(
                     val mean = vals.average()
                     val std = sqrt(vals.map { (it - mean) * (it - mean) }.average())
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
-                }
-                "Regression" -> {
-                    vals.map { it / 255.0 }
                 }
                 else -> vals
             }

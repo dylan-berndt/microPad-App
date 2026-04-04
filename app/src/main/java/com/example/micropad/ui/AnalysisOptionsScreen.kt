@@ -7,8 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
+import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,7 +22,7 @@ import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
 
 /**
- * Display the import screen for CSV files.
+ * Display the configuration/options screen for the analysis.
  *
  * @param viewModel The view model for the app.
  * @param navController The navigation controller for the app.
@@ -29,12 +30,12 @@ import com.example.micropad.data.DatasetModel
  * @return Unit
  */
 @Composable
-fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
+fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
 
     val distanceOptions = listOf("Euclidean", "Manhattan")
     val colorModeOptions = listOf("RGB", "Grayscale")
-    val normalizationOptions = listOf("MinMax", "Z-Score", "Regression", "None")
+    val normalizationOptions = listOf("MinMax", "Z-Score", "None")
 
     Column(
         modifier = Modifier
@@ -59,12 +60,12 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
         // Show confirmation that reference loaded
         if (viewModel.referenceDataset != null && !viewModel.referenceDataset!!.isEmpty()) {
             Text(
-                text = "✅ Reference loaded (${viewModel.referenceDataset!!.samples.size} samples)",
+                text = "Reference loaded (${viewModel.referenceDataset!!.samples.size} samples)",
                 color = MaterialTheme.colorScheme.primary
             )
         }
 
-        Divider()
+        HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Distance metric selector
         Text("Step 2: Choose distance metric")
@@ -102,7 +103,7 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
             }
         }
 
-        Divider()
+        HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Classify button — only enabled when reference is loaded
         Button(

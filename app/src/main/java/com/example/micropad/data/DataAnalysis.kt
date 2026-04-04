@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sqrt
 import android.util.Log
+import com.example.micropad.data.ingestImages
 
 /**
  * Data class to hold image and its semantic label.
@@ -29,7 +30,12 @@ data class LabeledImage(
 )
 
 /**
- * Data structures for classification results and image samples.
+ * A class for handling sample data captured from an image of a micropad.
+ *
+ * @property wellIndex The ID value for the dye well.
+ * @property assignedLabel The text value used for that dye well.
+ * @property closestReferenceName The nearest reference by computed distance.
+ * @property distanceScore The computed distance between sample and reference.
  */
 data class ClassificationResult(
     val wellIndex: Int,
@@ -38,10 +44,18 @@ data class ClassificationResult(
     val distanceScore: Double
 )
 
+/**
+ * A sample to hold data on images.
+ *
+ * @property imageData The original image data obtained for the sample.
+ * @property balanced The rebalanced image used for dye well extraction.
+ * @property initialOrdering An optional bitmap showing the initial dot ordering.
+ * @property dots The identified dots, as a list of contour and color pairs.
+ */
 class Sample(
-    val imageData: Mat?, 
-    val balanced: Mat?, 
-    val initialOrdering: Bitmap?, 
+    val imageData: Mat?,
+    val balanced: Mat?,
+    val initialOrdering: Bitmap?,
     val dots: MutableList<Pair<MatOfPoint, Scalar>>,
     var type: String = "Sample" // "Reference" or "Sample"
 ) {
@@ -60,6 +74,13 @@ class Sample(
     var ordering by mutableStateOf(initialOrdering)
         private set
 
+    /**
+     * Normalizes the dot data based on the chosen strategy and mode.
+     *
+     * @param strategy The user-selected normalization: MinMax, Z-Score, Regression, or none.
+     * @param mode Normalize in RGB or grayscale.
+     * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
+     */
     fun getNormalizedData(strategy: String, mode: String): List<DoubleArray> {
         val rawData = if (mode == "RGB") {
             rgb.map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
@@ -98,12 +119,24 @@ class Sample(
         return normalized
     }
 
+    /**
+     * Ensure selected dye well labels are unique and filled.
+     *
+     * @return True if labels are valid, false otherwise.
+     */
     fun validateLabels(): Boolean {
         val activeNames = names.filterIndexed { index, _ -> isSelected[index] }
         if (activeNames.any { it.isBlank() }) return false
         return activeNames.toSet().size == activeNames.size
     }
 
+    /**
+     * Reassigns a label to a specific well index.
+     *
+     * @param index The index of the well.
+     * @param newLabel The new label to assign.
+     * @return True if reassignment was successful, false if label already exists elsewhere or index is invalid.
+     */
     fun reassignLabel(index: Int, newLabel: String): Boolean {
         if (index !in names.indices) return false
         if (names.contains(newLabel) && names[index] != newLabel) return false
@@ -111,10 +144,22 @@ class Sample(
         return true
     }
 
+    /**
+     * Toggles whether a well is selected for analysis.
+     *
+     * @param index The index of the well.
+     * @param selected Whether the well should be selected.
+     */
     fun toggleSelection(index: Int, selected: Boolean) {
         if (index in isSelected.indices) isSelected[index] = selected
     }
 
+    /**
+     * Swaps the position of two dots in the sample.
+     *
+     * @param from The original index of the dot.
+     * @param to The new index to swap with.
+     */
     fun reorder(from: Int, to: Int) {
         Collections.swap(dots, from, to)
         Collections.swap(names, from, to)
@@ -125,11 +170,26 @@ class Sample(
     }
 }
 
+/**
+ * A collection of samples, providing methods for bulk operations and dataset-wide analysis.
+ *
+ * @property samples The list of samples in this dataset.
+ */
 class SampleDataset(val samples: MutableList<Sample>) {
-    var selected = mutableListOf<Boolean>().apply { repeat(samples.size) { add(true) } }
+    /**
+     * Tracks which samples are currently selected.
+     */
+    var selected = mutableListOf<Boolean>().apply {repeat(samples.size) { add(true) } }
 
     fun isEmpty() = samples.isEmpty()
 
+    /**
+     * Updates the name of a well across all samples in the dataset.
+     *
+     * @param index The index of the well.
+     * @param name The new name for the well.
+     * @return True if the rename was successful for all samples.
+     */
     fun nameWell(index: Int, name: String): Boolean {
         var worked = true
         for (sample in samples) {
@@ -138,18 +198,37 @@ class SampleDataset(val samples: MutableList<Sample>) {
         return worked
     }
 
+    /**
+     * Toggles the selection status of a specific well index across all samples.
+     *
+     * @param index The index of the well.
+     * @param selected The new selection status.
+     */
     fun toggleWell(index: Int, selected: Boolean) {
         for (sample in samples) {
             sample.toggleSelection(index, selected)
         }
     }
 
+    /**
+     * Triggers a reorder operation on a specific sample.
+     *
+     * @param sampleID The index of the sample in the dataset.
+     * @param from The starting index of the dot.
+     * @param to The target index for the swap.
+     */
     fun reorderSample(sampleID: Int, from: Int, to: Int) {
         if (sampleID in samples.indices) {
             samples[sampleID].reorder(from, to)
         }
     }
 
+    /**
+     * Populates the dataset by parsing a CSV file.
+     *
+     * @param uri The URI of the CSV file.
+     * @param context The Android context for content resolution.
+     */
     fun fromCSV(uri: Uri, context: Context) {
         val input = context.contentResolver.openInputStream(uri) ?: return
         samples.clear()
@@ -180,6 +259,16 @@ class SampleDataset(val samples: MutableList<Sample>) {
         }
     }
 
+    /**
+     * Performs classification on a target dataset using a reference dataset.
+     *
+     * @param referenceData The dataset containing labeled reference samples.
+     * @param newData The dataset to be classified.
+     * @param distance The distance metric to use (e.g., "Euclidean", "Manhattan").
+     * @param mode The color mode for comparison ("RGB" or grayscale).
+     * @param normalizationStrategy The strategy for normalizing feature vectors.
+     * @return The classified dataset.
+     */
     fun classify(
         referenceData: SampleDataset,
         newData: SampleDataset,
@@ -224,6 +313,9 @@ class SampleDataset(val samples: MutableList<Sample>) {
     }
 }
 
+/**
+ * ViewModel for managing the state of datasets across different screens in the app.
+ */
 class DatasetModel : ViewModel() {
     var labelingTargetIsReference by mutableStateOf(true)
 
@@ -234,9 +326,12 @@ class DatasetModel : ViewModel() {
     // Temporary storage for labeling flow
     var temporaryUris by mutableStateOf<List<Uri>>(emptyList())
 
+    /**
+     * The dataset used as a reference for classification.
+     */
     var referenceDataset by mutableStateOf<SampleDataset?>(null)
     var newDataset by mutableStateOf<SampleDataset?>(null)
-    
+
     var isLoading by mutableStateOf(false)
         private set
 
@@ -253,12 +348,12 @@ class DatasetModel : ViewModel() {
     fun ingestAllPending(context: Context, onComplete: () -> Unit) {
         viewModelScope.launch {
             isLoading = true
-            
+
             // 1. Process References
             if (pendingReferences.isNotEmpty()) {
                 val refUris = pendingReferences.toList().map { it.uri }
                 val dataset = ingestImages(refUris, context, log = false)
-                dataset.samples.forEachIndexed { i, sample -> 
+                dataset.samples.forEachIndexed { i, sample ->
                     sample.type = "Reference"
                     sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
                 }
@@ -281,6 +376,11 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    /**
+     * Checks if all samples in the current dataset have valid labels.
+     *
+     * @return True if all active labels are valid.
+     */
     fun allSamplesValid(): Boolean {
         val refValid = referenceDataset?.samples?.all { it.validateLabels() } ?: true
         val sampleValid = newDataset?.samples?.all { it.validateLabels() } ?: true
@@ -298,6 +398,12 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    /**
+     * Sets the reference dataset by loading it from a CSV file.
+     *
+     * @param uri The URI of the CSV file.
+     * @param context Context for file access.
+     */
     fun setReferenceDataset(uri: Uri, context: Context) {
         val dataset = SampleDataset(mutableListOf())
         dataset.fromCSV(uri, context)

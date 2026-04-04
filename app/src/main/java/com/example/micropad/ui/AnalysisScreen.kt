@@ -1,22 +1,31 @@
 package com.example.micropad.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +37,14 @@ import com.example.micropad.data.ClassificationResult
 import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 
+/**
+ * Display the results of a classification run.
+ *
+ * @param viewModel The view model for the app.
+ * @param navController The navigation controller for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
@@ -87,6 +104,16 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
     }
 }
 
+/**
+ * Display the results of a single sample.
+ *
+ * @param viewModel The view model for the app.
+ * @param sampleIndex The index of the sample.
+ * @param results The list of classification results for the sample.
+ * @param distanceMetric The distance metric used for the classification.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun SampleResultCard(
     viewModel: DatasetModel,
@@ -155,6 +182,15 @@ fun SampleResultCard(
     }
 }
 
+/**
+ * Display the results of a single well.
+ *
+ * @param viewModel The view model for the app.
+ * @param rank The rank of the well.
+ * @param result The classification result for the well.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellResultRow(viewModel: DatasetModel, rank: Int, result: ClassificationResult) {
     val scoreText = if (result.distanceScore < 0) "N/A"
@@ -244,6 +280,15 @@ fun WellResultRow(viewModel: DatasetModel, rank: Int, result: ClassificationResu
     }
 }
 
+/**
+ * Linearly interpolate between two colors.
+ *
+ * @param start The start color.
+ * @param end The end color.
+ * @param fraction The fraction between the start and end colors.
+ * @receiver The Composable calling this function.
+ * @return The interpolated color.
+ */
 fun lerpColor(start: Color, end: Color, fraction: Float): Color {
     return Color(
         red   = start.red   + (end.red   - start.red)   * fraction,

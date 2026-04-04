@@ -24,26 +24,46 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
+import com.example.micropad.R
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
-import com.example.micropad.R
 import com.example.micropad.data.CsvExportButton
 
-// Convert URI list to String
+/**
+ * Convert a list of URIs to a comma-separated string.
+ *
+ * @param addresses The list of URIs to convert.
+ * @receiver The Composable calling this function.
+ * @return A string representation of the URIs.
+ */
 fun urisToString(addresses: List<Uri>): String {
     val uriStrings = addresses.map { it.toString() }
     return Uri.encode(uriStrings.joinToString(","))
 }
 
-// Convert String back to URI list
+/**
+ * Convert a comma-separated string of URIs to a list of URIs.
+ *
+ * @param data The comma-separated string of URIs.
+ * @receiver The Composable calling this function.
+ * @return A list of URIs.
+ */
 fun stringToURIs(data: String): List<Uri> {
     return if (data.isNotEmpty()) {
         data.split(",").map { it.toUri() }
     } else emptyList()
 }
 
+/**
+ * Display a grid of well names.
+ *
+ * @param dataset The dataset to display.
+ * @param onFocusChange A callback to invoke when the user focuses on a well name.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
@@ -62,7 +82,7 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
                 Box {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
-                            checked = selected[i], 
+                            checked = selected[i],
                             onCheckedChange = { dataset.toggleWell(i, it); selected[i] = it },
                             modifier = Modifier.fillMaxWidth(0.2f)
                         )
@@ -89,6 +109,14 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
 }
 
 
+/**
+ * Display a grid of well names.
+ *
+ * @param dataset The dataset to display.
+ * @param sampleIndex The index of the sample to display.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     var from by remember { mutableIntStateOf(-1) }
@@ -142,6 +170,15 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     }
 }
 
+/**
+ * Display a screen for naming ROIs.
+ *
+ * @param addresses The list of image URIs to display.
+ * @param viewModel The view model for the app.
+ * @param navController The navigation controller for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
     val csvData = viewModel.toCsvString()

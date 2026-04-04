@@ -2,7 +2,15 @@ package com.example.micropad
 
 import android.content.ContentResolver
 import android.net.Uri
+import com.example.micropad.CsvParser.expectedHeaders
 
+/**
+ * A utility class for parsing and validating CSV files.
+ *
+ * @property expectedHeaders A list of expected headers in the CSV file.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 object CsvParser {
 
     private val expectedHeaders = listOf("id", "name", "email")

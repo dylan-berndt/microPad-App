@@ -40,6 +40,13 @@ import com.example.micropad.ui.LabelingScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import org.opencv.android.OpenCVLoader
 
+/**
+ * Creates the app and sets up the navigation.
+ *
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 class MainActivity : ComponentActivity() {
     private val sharedViewModel: DatasetModel by viewModels()
 
@@ -59,6 +66,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Sets up the navigation for the app.
+ *
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun MicroPadApp(viewModel: DatasetModel) {
     val navController = rememberNavController()
@@ -79,7 +93,7 @@ fun MicroPadApp(viewModel: DatasetModel) {
         composable("labelingScreen") {
             LabelingScreen(viewModel, navController)
         }
-        
+
         // Sub-flows for data acquisition
         composable("camera_ref") {
             CameraScreen(onImagesProcessed = { uris ->
@@ -134,11 +148,11 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            val hasData = viewModel.pendingReferences.isNotEmpty() || 
+            val hasData = viewModel.pendingReferences.isNotEmpty() ||
                           viewModel.pendingSamples.isNotEmpty() ||
                           viewModel.referenceDataset != null
-            
-            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) && 
+
+            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
                              viewModel.pendingSamples.isNotEmpty()
 
             val canExportReference = viewModel.pendingReferences.isNotEmpty()
@@ -193,6 +207,32 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     }
 }
 
+/**
+ * An enum representing the different destinations in the app.
+ *
+ * @property label The label for the destination.
+ * @property icon The icon for the destination.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
+enum class AppDestinations(
+    val label: String,
+    val icon: ImageVector,
+) {
+    HOME("Home", Icons.Default.Home),
+    GALLERY("Gallery", Icons.Default.Favorite),
+    CAMERA("Camera", Icons.Default.Add)
+}
+
+/**
+ * Show user the main screen of the app.
+ *
+ * @param name The name to display.
+ * @param modifier The modifier to apply to the layout.
+ * @param viewModel The view model for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
@@ -219,7 +259,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
             onGallery = { navController.navigate("gallery_ref") },
             onCamera = { navController.navigate("camera_ref") },
             showCsv = true,
-            onCsv = { uri -> 
+            onCsv = { uri ->
                 if (uri != null) {
                     viewModel.setImportedFile(uri, context)
                     viewModel.setReferenceDataset(uri, context)
@@ -266,7 +306,7 @@ fun DataAcquisitionCard(
                     }
                 }
             }
-            
+
             Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -281,7 +321,7 @@ fun DataAcquisitionCard(
                     Text("Camera", fontSize = 12.sp)
                 }
             }
-            
+
             if (showCsv && onCsv != null) {
                 CsvImportButton(onFileSelected = onCsv)
             }

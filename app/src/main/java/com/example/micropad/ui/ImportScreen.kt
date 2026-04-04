@@ -1,8 +1,17 @@
 package com.example.micropad.ui
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.Divider
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -11,6 +20,14 @@ import androidx.navigation.NavController
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
 
+/**
+ * Display the import screen for CSV files.
+ *
+ * @param viewModel The view model for the app.
+ * @param navController The navigation controller for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
@@ -18,7 +35,6 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
     val distanceOptions = listOf("Euclidean", "Manhattan")
     val colorModeOptions = listOf("RGB", "Grayscale")
     val normalizationOptions = listOf("MinMax", "Z-Score", "Regression", "None")
-
 
     Column(
         modifier = Modifier

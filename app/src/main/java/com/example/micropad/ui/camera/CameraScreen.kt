@@ -40,12 +40,20 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
 import java.io.File
 
+/**
+ * Enum representing the flow of the camera screen.
+ */
 enum class CameraFlowScreen {
     CAMERA, PROMPT
 }
 
 /**
  * A screen that handles camera permission and displays the camera preview.
+ *
+ * @param onImagesProcessed A callback invoked when the user finishes capturing and labeling all
+ * images.
+ * @receiver The Composable calling this function.
+ * @return Unit
  */
 @Composable
 fun CameraScreen(onImagesProcessed: (List<Uri>) -> Unit) {
@@ -97,6 +105,14 @@ fun CameraScreen(onImagesProcessed: (List<Uri>) -> Unit) {
     }
 }
 
+/**
+ * The main content of the camera screen, shown when permission is granted.
+ *
+ * @param onImagesProcessed A callback invoked when the user finishes capturing and labeling all
+ * images.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 private fun CameraContent(onImagesProcessed: (List<Uri>) -> Unit) {
     val context = LocalContext.current
@@ -151,6 +167,13 @@ private fun CameraContent(onImagesProcessed: (List<Uri>) -> Unit) {
     }
 }
 
+/**
+ * Ask user for camera permission.
+ *
+ * @param onRequestPermission A callback invoked when the user clicks the "Grant Permission" button.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 private fun PermissionRationaleScreen(onRequestPermission: () -> Unit) {
     Column(
@@ -171,6 +194,14 @@ private fun PermissionRationaleScreen(onRequestPermission: () -> Unit) {
     }
 }
 
+/**
+ * Display the camera preview and capture button.
+ *
+ * @param controller The camera controller.
+ * @param onCapture A callback invoked when the capture button is clicked.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun CameraPreview(
     controller: LifecycleCameraController,
@@ -244,6 +275,15 @@ fun CameraPreview(
     }
 }
 
+/**
+ * Display a preview of the captured image.
+ *
+ * @param imageUri The URI of the captured image.
+ * @param onRetake A callback invoked when the user clicks the "Retake" button.
+ * @param onUsePhoto A callback invoked when the user clicks the "Use" button.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 @Composable
 fun ImagePreviewScreen(
     imageUri: Uri,
@@ -319,6 +359,14 @@ fun NextStepPrompt(
     }
 }
 
+/**
+ * Save the image to the device's gallery.
+ *
+ * @param context The context of the app.
+ * @param uri The URI of the image to save.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
 private fun saveImageToGallery(context: Context, uri: Uri) {
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")

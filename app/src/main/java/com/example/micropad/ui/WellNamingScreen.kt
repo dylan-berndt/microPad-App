@@ -5,40 +5,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -55,6 +29,7 @@ import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
+import com.example.micropad.data.CsvExportButton
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -92,10 +67,9 @@ fun stringToURIs(data: String): List<Uri> {
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
-    val scrollState = rememberScrollState()
 
-    var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
-    var selected = remember { mutableStateListOf<Boolean>().apply {repeat(numberOfDots) { add(true) } } }
+    val texts = remember { mutableStateListOf<String>().apply { repeat(numberOfDots) { add("") } } }
+    val selected = remember { mutableStateListOf<Boolean>().apply { repeat(numberOfDots) { add(true) } } }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().height(20.dp)) {
@@ -103,12 +77,13 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
             Text("Region of Interest Name", modifier = Modifier.fillMaxWidth(0.8f))
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(texts) { i, text ->
+            itemsIndexed(texts) { i, _ ->
                 val isSelected = if (i < selected.size) selected[i] else true
                 Box {
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
-                            selected[i], { dataset.toggleWell(i, it); selected[i] = it },
+                            checked = selected[i],
+                            onCheckedChange = { dataset.toggleWell(i, it); selected[i] = it },
                             modifier = Modifier.fillMaxWidth(0.2f)
                         )
                         TextField(
@@ -144,11 +119,9 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
  */
 @Composable
 fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
-    var from by remember { mutableIntStateOf(-1) };
-    var to by remember { mutableIntStateOf(-1) };
-    val scrollState = rememberScrollState()
+    var from by remember { mutableIntStateOf(-1) }
+    var to by remember { mutableIntStateOf(-1) }
 
-    // No image has been selected
     if (sampleIndex == -1) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -163,10 +136,9 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     Column(modifier = Modifier.fillMaxSize()) {
         Text("Select two ROIs to swap")
 
-        // If the user has selected a dot to transfer from and to, allow them to reorder
         if (from != -1 && to != -1) {
             Text("ROI ${from + 1} <-> ROI ${to + 1}")
-            Button({
+            Button(onClick = {
                 dataset.reorderSample(sampleIndex, from, to)
                 from = -1
                 to = -1
@@ -175,15 +147,11 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
             }
         }
 
-        LazyColumn() {
-            itemsIndexed(dataset.samples[sampleIndex].dots) { i, dot ->
-                // Create a selection button for each ROI
+        LazyColumn {
+            itemsIndexed(dataset.samples[sampleIndex].dots) { i, _ ->
                 Row(verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                         .clickable {
-                            // If the user selects this radio button
-                            // and this button is not already selected,
-                            // select the region to be the from or to, in order
                             if (from == -1) {
                                 from = i
                             } else if (to == -1 && from != i) {
@@ -212,17 +180,29 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
  * @return Unit
  */
 @Composable
-fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
+fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
+    val csvData = viewModel.toCsvString()
+
+    AlertDialog(
+        title = { Text("Export Reference Data") },
+        text = { Text("You have only imported reference data. Move on to export a reference dataset.") },
+        onDismissRequest = onDismissRequest,
+        confirmButton = { CsvExportButton(type = "references", dataRows = csvData, navHome = navigate) },
+        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+    )
+}
+
+@Composable
+fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
     var focusedIndex by remember { mutableStateOf<Int?>(null) }
-
     var selectedImage by remember { mutableIntStateOf(-1) }
-
     val strategies = listOf("Mean", "Center")
-    var selectionStrategy by remember {mutableStateOf("Mean")}
+    var selectionStrategy by remember { mutableStateOf("Mean") }
+    val openAlertDialog = remember { mutableStateOf(false) }
 
-    LaunchedEffect(addresses, selectionStrategy) {
-        viewModel.ingest(addresses, context, selectionStrategy)
+    LaunchedEffect(Unit) {
+        viewModel.ingestAllPending(context) {}
     }
 
     if (viewModel.isLoading) {
@@ -232,151 +212,163 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
             verticalArrangement = Arrangement.Center
         ) {
             CircularProgressIndicator()
+            Text("Processing Images...")
         }
     } else {
-        viewModel.newDataset?.let { dataset ->
+        val combinedSamples = mutableListOf<com.example.micropad.data.Sample>()
+        viewModel.referenceDataset?.samples?.let { combinedSamples.addAll(it) }
+        viewModel.newDataset?.samples?.let { combinedSamples.addAll(it) }
 
-            Column(modifier = Modifier.fillMaxWidth().padding(top=36.dp, bottom=36.dp)) {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).align(Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    itemsIndexed(dataset.samples) { index, sample ->
-                        var modifier = Modifier
-                            .fillMaxWidth(0.95f)
-                            .height(200.dp)
-                            .clickable(onClick = { selectedImage = index })
-                            .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
-                        if (index == selectedImage) {
-                            modifier = modifier
-                                .background(MaterialTheme.colorScheme.primary)
-                        }
+        if (combinedSamples.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No data to process")
+            }
+            return
+        }
 
-                        // Yeesh
-                        val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList()) {
-                            sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
-                        }
+        when {
+            openAlertDialog.value -> {
+                ReferenceOnlyDialog(
+                    navigate = {
+                        viewModel.reset()
+                        navController.navigate("home") },
+                    onDismissRequest = { openAlertDialog.value = false },
+                    viewModel = viewModel)
+            }
+        }
 
-                        if (displayBitmap != null) {
-                            Row(modifier = modifier) {
-                                Image(
-                                    bitmap = displayBitmap.asImageBitmap(),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.6f / 0.95f)
-                                        .height(200.dp)
-                                )
-                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    itemsIndexed(sample.names) { i, name ->
-                                        if (name != "") {
-                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text("${i + 1}. ${name}", modifier=Modifier.padding(end=5.dp))
-                                                val scalar = sample.dots[i].second
-                                                val color = Color(
-                                                    red = scalar.`val`[2].toInt(),
-                                                    green = scalar.`val`[1].toInt(),
-                                                    blue = scalar.`val`[0].toInt(),
-                                                    alpha = 255
-                                                )
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 36.dp, bottom = 36.dp)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f).align(Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                itemsIndexed(combinedSamples) { index, sample ->
+                    var modifier = Modifier
+                        .fillMaxWidth(0.95f)
+                        .height(200.dp)
+                        .clickable(onClick = { selectedImage = index })
+                        .border(width = 2.dp, color = MaterialTheme.colorScheme.primary)
+                    if (index == selectedImage) {
+                        modifier = modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                    }
 
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(15.dp)
-                                                        .background(color)
-                                                        .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
-                                                )
-                                            }
+                    val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList()) {
+                        sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
+                    }
+
+                    if (displayBitmap != null) {
+                        Row(modifier = modifier) {
+                            Image(
+                                bitmap = displayBitmap.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f / 0.95f)
+                                    .height(200.dp)
+                            )
+                            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                itemsIndexed(sample.names) { i, name ->
+                                    if (name != "") {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("${i + 1}. $name", modifier = Modifier.padding(end = 5.dp))
+                                            val scalar = sample.dots[i].second
+                                            val color = Color(
+                                                red = scalar.`val`[2].toInt().coerceIn(0, 255),
+                                                green = scalar.`val`[1].toInt().coerceIn(0, 255),
+                                                blue = scalar.`val`[0].toInt().coerceIn(0, 255),
+                                                alpha = 255
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(15.dp)
+                                                    .background(color)
+                                                    .border(width = 2.dp, color = MaterialTheme.colorScheme.primary)
+                                            )
                                         }
-                                        else null
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
 
-                val tabs: List<@Composable () -> Unit> = listOf(
-                    { WellOrderingGrid(dataset, selectedImage) },
-                    { WellNamingGrid(dataset) { index -> focusedIndex = index } }
+            // Simplified for logic: wrap everything in a SampleDataset for the grids
+            val tempDataset = SampleDataset(combinedSamples)
+
+            val tabs: List<@Composable () -> Unit> = listOf(
+                { WellOrderingGrid(tempDataset, selectedImage) },
+                { WellNamingGrid(tempDataset) { index -> focusedIndex = index } }
+            )
+            val tabNames = listOf("ROI Ordering", "ROI Naming")
+            val pagerState = rememberPagerState(pageCount = { tabs.size })
+            val coroutineScope = rememberCoroutineScope()
+
+            HorizontalPager(state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(250.dp)
+                    .padding(all = 10.dp)) { page ->
+                tabs[page]()
+            }
+            TabRow(selectedTabIndex = pagerState.currentPage) {
+                tabs.forEachIndexed { index, _ ->
+                    Tab(
+                        text = { Text(tabNames[index]) },
+                        selected = pagerState.currentPage == index,
+                        onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
+                    )
+                }
+            }
+
+            var isDropDownExpanded by remember { mutableStateOf(false) }
+
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { isDropDownExpanded = true }
+            ) {
+                Text(text = "Dye Extraction Strategy: $selectionStrategy ")
+                Icon(
+                    painter = painterResource(id = R.drawable.dropdown),
+                    contentDescription = "DropDown Icon",
+                    modifier = Modifier.size(15.dp)
                 )
-                val tabNames = listOf("ROI Ordering", "ROI Naming")
-                val pagerState = rememberPagerState(pageCount = { tabs.size })
-                val coroutineScope = rememberCoroutineScope()
+            }
 
-                HorizontalPager(state = pagerState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .padding(all = 10.dp)) { page ->
-                    tabs[page]()
+            DropdownMenu(
+                expanded = isDropDownExpanded,
+                onDismissRequest = { isDropDownExpanded = false }) {
+                strategies.forEach { strategy ->
+                    DropdownMenuItem(
+                        text = { Text(text = strategy) },
+                        onClick = {
+                            isDropDownExpanded = false
+                            selectionStrategy = strategy
+                        })
                 }
-                TabRow(selectedTabIndex = pagerState.currentPage) {
-                    tabs.forEachIndexed { index, composable ->
-                        Tab(
-                            text = { Text(tabNames[index]) },
-                            selected = pagerState.currentPage == index,
-                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
-                        )
-                    }
-                }
+            }
 
-                val isDropDownExpanded = remember {
-                    mutableStateOf(false)
-                }
-
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        isDropDownExpanded.value = true
-                    }
-                ) {
-                    Text(text = "Dye Extraction Strategy: $selectionStrategy ")
-                    Image(
-                        painter = painterResource(id = R.drawable.dropdown),
-                        contentDescription = "DropDown Icon",
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = isDropDownExpanded.value,
-                    onDismissRequest = {
-                        isDropDownExpanded.value = false
-                    }) {
-                    strategies.forEachIndexed { index, strategy ->
-                        DropdownMenuItem(text = {
-                            Text(text = strategy)
-                        },
-                            onClick = {
-                                isDropDownExpanded.value = false
-                                selectionStrategy = strategy
-                            })
-                    }
-                }
-
-                // NEXT BUTTON
-                Button(
-                    onClick = {
+            Button(
+                onClick = {
+                    if (viewModel.newDataset != null) {
                         navController.navigate("import")
-                    },
-                    enabled = viewModel.allSamplesValid(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text("Next")
-                }
+                    }
+                    else {
+                        openAlertDialog.value = true;
+                    }},
+                enabled = viewModel.allSamplesValid(),
+                modifier = Modifier.fillMaxWidth().padding(16.dp)
+            ) {
+                Text("Next")
+            }
 
-                // Show warning if not valid
-                if (!viewModel.allSamplesValid()) {
-                    Text(
-                        text = "Please assign all active labels before continuing",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
-                }
+            if (!viewModel.allSamplesValid()) {
+                Text(
+                    text = "Please assign all active labels before continuing",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
             }
         }
     }

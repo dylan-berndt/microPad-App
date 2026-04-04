@@ -29,6 +29,7 @@ import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
 import com.example.micropad.R
+import com.example.micropad.data.CsvExportButton
 
 // Convert URI list to String
 fun urisToString(addresses: List<Uri>): String {
@@ -142,12 +143,26 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
 }
 
 @Composable
+fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
+    val csvData = viewModel.toCsvString()
+
+    AlertDialog(
+        title = { Text("Export Reference Data") },
+        text = { Text("You have only imported reference data. Move on to export a reference dataset.") },
+        onDismissRequest = onDismissRequest,
+        confirmButton = { CsvExportButton(type = "references", dataRows = csvData, navHome = navigate) },
+        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+    )
+}
+
+@Composable
 fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
     var focusedIndex by remember { mutableStateOf<Int?>(null) }
     var selectedImage by remember { mutableIntStateOf(-1) }
     val strategies = listOf("Mean", "Center")
     var selectionStrategy by remember { mutableStateOf("Mean") }
+    val openAlertDialog = remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.ingestAllPending(context) {}
@@ -160,6 +175,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             verticalArrangement = Arrangement.Center
         ) {
             CircularProgressIndicator()
+            Text("Processing Images...")
         }
     } else {
         val combinedSamples = mutableListOf<com.example.micropad.data.Sample>()
@@ -171,6 +187,17 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                 Text("No data to process")
             }
             return
+        }
+
+        when {
+            openAlertDialog.value -> {
+                ReferenceOnlyDialog(
+                    navigate = {
+                        viewModel.reset()
+                        navController.navigate("home") },
+                    onDismissRequest = { openAlertDialog.value = false },
+                    viewModel = viewModel)
+            }
         }
 
         Column(modifier = Modifier.fillMaxWidth().padding(top = 36.dp, bottom = 36.dp)) {
@@ -286,7 +313,13 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             }
 
             Button(
-                onClick = { navController.navigate("import") },
+                onClick = {
+                    if (viewModel.newDataset != null) {
+                        navController.navigate("import")
+                    }
+                    else {
+                        openAlertDialog.value = true;
+                    }},
                 enabled = viewModel.allSamplesValid(),
                 modifier = Modifier.fillMaxWidth().padding(16.dp)
             ) {

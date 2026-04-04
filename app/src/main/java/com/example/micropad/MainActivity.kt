@@ -119,6 +119,17 @@ fun MicroPadApp(viewModel: DatasetModel) {
 }
 
 @Composable
+fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
+    AlertDialog(
+        title = { Text("No Sample Data") },
+        text = { Text("You have only imported reference data. Move on only if you are only exporting a reference sheet for later use.") },
+        onDismissRequest = onDismissRequest,
+        confirmButton = {TextButton(onClick = navigate) { Text("Next") }},
+        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+    )
+}
+
+@Composable
 fun FrontPage(navController: NavController, viewModel: DatasetModel) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -129,7 +140,19 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
             
             val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) && 
                              viewModel.pendingSamples.isNotEmpty()
-            
+
+            val canExportReference = viewModel.pendingReferences.isNotEmpty()
+
+            val openAlertDialog = remember {mutableStateOf(false)}
+
+            when {
+                openAlertDialog.value -> {
+                    ReferenceOnlyDialog(
+                        navigate = {navController.navigate("namingScreen")},
+                        onDismissRequest = { openAlertDialog.value = false })
+                }
+            }
+
             Column {
                 if (hasData) {
                     OutlinedButton(
@@ -142,10 +165,16 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
                         Text("Restart Data Upload")
                     }
                 }
-                
+
                 Button(
-                    onClick = { navController.navigate("namingScreen") },
-                    enabled = canProceed,
+                    onClick = {
+                        if (canProceed) {
+                            navController.navigate("namingScreen")
+                        }
+                        else {
+                            openAlertDialog.value = true;
+                        }},
+                    enabled = canProceed || canExportReference,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)

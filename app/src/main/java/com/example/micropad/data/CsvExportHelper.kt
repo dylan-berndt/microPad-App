@@ -19,19 +19,22 @@ import java.io.IOException
  * @param type Either "references" or "samples".
  * @param initialFilename Default filename if creating a new file.
  * @param existingUri The Uri of the file to append to. If null, a file picker will be launched.
+ * @param navHome Optional function to allow for immediate navigation home in cases where an export is the final step.
  */
 @Composable
-fun CsvExportButton(dataRows: String, type: String, initialFilename: String? = "data.csv", existingUri: Uri? = null) {
+fun CsvExportButton(dataRows: String, type: String, initialFilename: String? = "data.csv", existingUri: Uri? = null, navHome: () -> Unit = {}) {
     val context = LocalContext.current
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri: Uri? ->
         uri?.let { writeToCsv(dataRows, type, it, context) }
+        navHome()
     }
 
     Button(onClick = {
         if (existingUri != null) {
             writeToCsv(dataRows, type, existingUri, context)
+            navHome()
         } else {
             launcher.launch(initialFilename ?: "data.csv")
         }

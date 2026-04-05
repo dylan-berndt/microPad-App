@@ -40,7 +40,8 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(24.dp)
+            .padding(top = 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
@@ -49,26 +50,10 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
             style = MaterialTheme.typography.headlineSmall
         )
 
-        // Reference CSV import button
-        Text("Step 1: Load a reference CSV file")
-        CsvImportButton { uri ->
-            if (uri != null) {
-                viewModel.setReferenceDataset(uri, context)
-            }
-        }
-
-        // Show confirmation that reference loaded
-        if (viewModel.referenceDataset != null && !viewModel.referenceDataset!!.isEmpty()) {
-            Text(
-                text = "Reference loaded (${viewModel.referenceDataset!!.samples.size} samples)",
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Distance metric selector
-        Text("Step 2: Choose distance metric")
+        Text("Choose distance metric")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             distanceOptions.forEach { option ->
                 FilterChip(
@@ -80,7 +65,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         }
 
         // Color mode selector
-        Text("Step 3: Choose color mode")
+        Text("Choose color mode")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             colorModeOptions.forEach { option ->
                 FilterChip(
@@ -92,7 +77,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         }
 
         // Normalization selector
-        Text("Step 4: Choose normalization method")
+        Text("Choose normalization method")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             normalizationOptions.forEach { option ->
                 FilterChip(

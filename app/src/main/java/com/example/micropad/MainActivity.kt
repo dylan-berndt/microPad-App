@@ -80,7 +80,7 @@ fun MicroPadApp(viewModel: DatasetModel) {
         composable("namingScreen") {
             WellNamingScreen(viewModel, navController)
         }
-        composable("import") {
+        composable("options") {
             AnalysisConfigScreen(viewModel, navController)
         }
         composable("analysis") {

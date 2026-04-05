@@ -352,7 +352,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             Button(
                 onClick = {
                     if (viewModel.newDataset != null) {
-                        navController.navigate("import")
+                        navController.navigate("options")
                     }
                     else {
                         openAlertDialog.value = true;

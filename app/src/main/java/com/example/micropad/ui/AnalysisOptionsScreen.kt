@@ -45,7 +45,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         Text(
-            text = "Import Reference & Classify",
+            text = "Set Analysis Configuration",
             style = MaterialTheme.typography.headlineSmall
         )
 

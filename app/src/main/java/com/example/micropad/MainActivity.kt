@@ -14,11 +14,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,10 +27,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.LabeledImage
 import com.example.micropad.ui.AnalysisScreen
-import com.example.micropad.ui.GalleryPickerScreen
-import com.example.micropad.ui.ImportScreen
+import com.example.micropad.ui.AnalysisConfigScreen
 import com.example.micropad.ui.WellNamingScreen
 import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.GalleryReferenceFlow
@@ -43,7 +39,7 @@ import org.opencv.android.OpenCVLoader
 /**
  * Creates the app and sets up the navigation.
  *
- * @param viewModel The view model for the app.
+ * @param sharedViewModel The view model for the app.
  * @receiver The Composable calling this function.
  * @return Unit
  */
@@ -84,8 +80,8 @@ fun MicroPadApp(viewModel: DatasetModel) {
         composable("namingScreen") {
             WellNamingScreen(viewModel, navController)
         }
-        composable("import") {
-            ImportScreen(viewModel, navController)
+        composable("options") {
+            AnalysisConfigScreen(viewModel, navController)
         }
         composable("analysis") {
             AnalysisScreen(viewModel, navController)
@@ -186,7 +182,7 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
                             navController.navigate("namingScreen")
                         }
                         else {
-                            openAlertDialog.value = true;
+                            openAlertDialog.value = true
                         }},
                     enabled = canProceed || canExportReference,
                     modifier = Modifier
@@ -208,26 +204,8 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
 }
 
 /**
- * An enum representing the different destinations in the app.
- *
- * @property label The label for the destination.
- * @property icon The icon for the destination.
- * @receiver The Composable calling this function.
- * @return Unit
- */
-enum class AppDestinations(
-    val label: String,
-    val icon: ImageVector,
-) {
-    HOME("Home", Icons.Default.Home),
-    GALLERY("Gallery", Icons.Default.Favorite),
-    CAMERA("Camera", Icons.Default.Add)
-}
-
-/**
  * Show user the main screen of the app.
  *
- * @param name The name to display.
  * @param modifier The modifier to apply to the layout.
  * @param viewModel The view model for the app.
  * @receiver The Composable calling this function.
@@ -254,7 +232,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
         // Card 1: References
         DataAcquisitionCard(
             title = "1. Reference Data",
-            description = "Upload known baselines (H2O, standard solutions, etc.)",
+            description = "Upload known baselines (H2O, Fe(III), Fe(II), Ni(II), etc.)",
             count = viewModel.pendingReferences.size + (if (viewModel.referenceDataset != null) 1 else 0),
             onGallery = { navController.navigate("gallery_ref") },
             onCamera = { navController.navigate("camera_ref") },

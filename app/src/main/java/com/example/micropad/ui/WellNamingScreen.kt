@@ -1,6 +1,7 @@
 package com.example.micropad.ui
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +67,12 @@ fun stringToURIs(data: String): List<Uri> {
  */
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
+
+    // Log the dataset along with its contents
+    val TAG = "WellNamingGrid"
+    Log.d(TAG, "Dataset: $dataset")
+    Log.d(TAG, "Samples: ${dataset.samples}")
+
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
 
     val texts = remember { mutableStateListOf<String>().apply { repeat(numberOfDots) { add("") } } }
@@ -352,7 +359,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             Button(
                 onClick = {
                     if (viewModel.newDataset != null) {
-                        navController.navigate("import")
+                        navController.navigate("options")
                     }
                     else {
                         openAlertDialog.value = true;

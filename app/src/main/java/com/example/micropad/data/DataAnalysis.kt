@@ -65,9 +65,9 @@ class Sample(
     val squares: MutableList<Scalar> = mutableListOf<Scalar>(),
     var type: String = "Sample" // "Reference" or "Sample"
 ) {
-    var rgb: List<Scalar> = dots.map { it.second }
-    var greyscale: List<Double> =
-        rgb.map { greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }
+    var rgb: MutableList<Scalar> = dots.map { it.second }.toMutableList()
+    var greyscale: MutableList<Double> =
+        rgb.map { greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }.toMutableList()
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
@@ -112,11 +112,13 @@ class Sample(
                     val maxVal = vals.maxOrNull() ?: 255.0
                     if (maxVal == minVal) vals.map { 0.0 } else vals.map { (it - minVal) / (maxVal - minVal) }
                 }
+
                 "Z-Score" -> {
                     val mean = vals.average()
                     val std = sqrt(vals.map { (it - mean) * (it - mean) }.average())
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
                 }
+
                 else -> vals
             }
             for (i in transformed.indices) {
@@ -172,12 +174,17 @@ class Sample(
      * @param to The new index to swap with.
      */
     fun reorder(from: Int, to: Int) {
-        Collections.swap(dots, from, to)
-        Collections.swap(names, from, to)
-        Collections.swap(rgb, from, to)
-        Collections.swap(greyscale, from, to)
-        Collections.swap(isSelected, from, to)
-        if (imageData != null) ordering = drawOrdering(imageData, dots)
+        if (from !in dots.indices || to !in dots.indices) return
+        try {
+            Collections.swap(dots, from, to)
+            Collections.swap(names, from, to)
+            Collections.swap(rgb, from, to)
+            Collections.swap(greyscale, from, to)
+            Collections.swap(isSelected, from, to)
+            if (imageData != null) ordering = drawOrdering(imageData, dots)
+        } catch (e: Exception) {
+            // swap failed — state unchanged, logged silently
+        }
     }
 }
 
@@ -241,32 +248,43 @@ class SampleDataset(val samples: MutableList<Sample>) {
      * @param context The Android context for content resolution.
      */
     fun fromCSV(uri: Uri, context: Context) {
-        val input = context.contentResolver.openInputStream(uri) ?: return
-        samples.clear()
-        val lines = input.bufferedReader().readLines()
-        if (lines.isEmpty()) return
+        try {
+            val input = context.contentResolver.openInputStream(uri) ?: run {
+                AppErrorLogger.logError(context, "CSV", "fromCSV: could not open input stream for $uri")
+                return
+            }
+            samples.clear()
+            val lines = input.bufferedReader().readLines()
+            if (lines.isEmpty()) return
 
-        val header = lines[0].trimStart('\uFEFF').split(",")
-        val metadataColumns = 4
-        val colorColumns = header.drop(metadataColumns)
-        val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
-        val numberOfDots = dyeNames.size
+            val header = lines[0].trimStart('\uFEFF').split(",")
+            val metadataColumns = 4
+            val colorColumns = header.drop(metadataColumns)
+            val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
+            val numberOfDots = dyeNames.size
 
-        lines.drop(1).forEach { line ->
-            if (line.isBlank()) return@forEach
-            try {
-                val tokens = line.split(",")
-                if (tokens.size < metadataColumns + numberOfDots * 3) return@forEach
-                val refName = tokens[1].trim()
-                val colors = tokens.drop(metadataColumns).chunked(3).take(numberOfDots).map { chunk ->
-                    Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
+            lines.drop(1).forEach { line ->
+                if (line.isBlank()) return@forEach
+                try {
+                    val tokens = line.split(",")
+                    if (tokens.size < metadataColumns + numberOfDots * 3) return@forEach
+                    val refName = tokens[1].trim()
+                    val colors = tokens.drop(metadataColumns).chunked(3).take(numberOfDots).map { chunk ->
+                        Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
+                    }
+                    val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
+                    val sample = Sample(null, null, null, dots, type = "Reference")
+                    sample.names.clear(); sample.names.addAll(dyeNames)
+                    sample.rgb = colors.toMutableList()
+                    sample.referenceName = refName
+                    samples.add(sample)
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "CSV", "fromCSV: failed to parse row: $line", e)
                 }
-                val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
-                val sample = Sample(null, null, null, dots, type = "Reference")
-                sample.names.clear(); sample.names.addAll(dyeNames)
-                sample.rgb = colors; sample.referenceName = refName
-                samples.add(sample)
-            } catch (e: Exception) { return@forEach }
+            }
+        } catch (e: Exception) {
+            AppErrorLogger.logError(context, "CSV", "fromCSV: unexpected failure", e)
+            samples.clear()
         }
     }
 
@@ -287,39 +305,62 @@ class SampleDataset(val samples: MutableList<Sample>) {
         mode: String = "RGB",
         normalizationStrategy: String = "None"
     ) {
-        val normalizedRefs = referenceData.samples.map { it.getNormalizedData(normalizationStrategy, mode) }
+        val normalizedRefs =
+            referenceData.samples.map { it.getNormalizedData(normalizationStrategy, mode) }
         for (sample in newData.samples) {
-            sample.classificationResults.clear()
-            val normalizedSampleData = sample.getNormalizedData(normalizationStrategy, mode)
-            val newNames = sample.rgb.mapIndexed { dotIdx, _ ->
-                if (!sample.isSelected[dotIdx]) return@mapIndexed ""
-                val dotFeatures = normalizedSampleData[dotIdx]
-                var bestScore = Double.MAX_VALUE; var bestRefName = ""; var bestRefSample: Sample? = null
+            try {
+                sample.classificationResults.clear()
+                val normalizedSampleData = sample.getNormalizedData(normalizationStrategy, mode)
+                val newNames = sample.rgb.mapIndexed { dotIdx, _ ->
+                    if (!sample.isSelected[dotIdx]) return@mapIndexed ""
+                    val dotFeatures = normalizedSampleData[dotIdx]
+                    var bestScore = Double.MAX_VALUE;
+                    var bestRefName = "";
+                    var bestRefSample: Sample? = null
 
-                for (r in referenceData.samples.indices) {
-                    val refSample = referenceData.samples[r]
-                    if (dotIdx >= normalizedRefs[r].size) continue
-                    val refFeatures = normalizedRefs[r][dotIdx]
-                    val score = when (distance) {
-                        "Euclidean" -> {
-                            var sum = 0.0
-                            for (i in dotFeatures.indices) { val diff = dotFeatures[i] - refFeatures[i]; sum += diff * diff }
-                            sqrt(sum)
+                    for (r in referenceData.samples.indices) {
+                        val refSample = referenceData.samples[r]
+                        if (dotIdx >= normalizedRefs[r].size) continue
+                        val refFeatures = normalizedRefs[r][dotIdx]
+                        val score = when (distance) {
+                            "Euclidean" -> {
+                                var sum = 0.0
+                                for (i in dotFeatures.indices) {
+                                    val diff = dotFeatures[i] - refFeatures[i]; sum += diff * diff
+                                }
+                                sqrt(sum)
+                            }
+
+                            "Manhattan" -> {
+                                var sum = 0.0
+                                for (i in dotFeatures.indices) {
+                                    sum += abs(dotFeatures[i] - refFeatures[i])
+                                }
+                                sum
+                            }
+
+                            else -> Double.MAX_VALUE
                         }
-                        "Manhattan" -> {
-                            var sum = 0.0
-                            for (i in dotFeatures.indices) { sum += abs(dotFeatures[i] - refFeatures[i]) }
-                            sum
+                        if (score < bestScore) {
+                            bestScore = score; bestRefName =
+                                refSample.referenceName; bestRefSample = refSample
                         }
-                        else -> Double.MAX_VALUE
                     }
-                    if (score < bestScore) { bestScore = score; bestRefName = refSample.referenceName; bestRefSample = refSample }
+                    val label = bestRefSample?.names?.getOrNull(dotIdx) ?: ""
+                    sample.classificationResults.add(
+                        ClassificationResult(
+                            dotIdx,
+                            label,
+                            bestRefName,
+                            if (bestScore == Double.MAX_VALUE) -1.0 else bestScore
+                        )
+                    )
+                    label
                 }
-                val label = bestRefSample?.names?.getOrNull(dotIdx) ?: ""
-                sample.classificationResults.add(ClassificationResult(dotIdx, label, bestRefName, if (bestScore == Double.MAX_VALUE) -1.0 else bestScore))
-                label
+                sample.names.clear(); sample.names.addAll(newNames)
+            } catch (e: Exception) {
+                // this sample failed — others continue unaffected
             }
-            sample.names.clear(); sample.names.addAll(newNames)
         }
     }
 }
@@ -352,6 +393,7 @@ class DatasetModel : ViewModel() {
     var distanceMetric by mutableStateOf("Euclidean")
     var colorMode by mutableStateOf("RGB")
     var normalizationStrategy by mutableStateOf("None")
+    var comparisonMode by mutableStateOf("Per Color")
 
     /**
      * Ingests all pending images into structured datasets.
@@ -360,26 +402,32 @@ class DatasetModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
 
-            // 1. Process References
             if (pendingReferences.isNotEmpty()) {
-                val refUris = pendingReferences.toList().map { it.uri }
-                val dataset = ingestImages(refUris, context, log = false)
-                dataset.samples.forEachIndexed { i, sample ->
-                    sample.type = "Reference"
-                    sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
+                try {
+                    val refUris = pendingReferences.toList().map { it.uri }
+                    val dataset = ingestImages(refUris, context, log = false)
+                    dataset.samples.forEachIndexed { i, sample ->
+                        sample.type = "Reference"
+                        sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
+                    }
+                    referenceDataset = dataset
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "Ingest", "Failed ingesting references", e)
                 }
-                referenceDataset = dataset
             }
 
-            // 2. Process Samples
             if (pendingSamples.isNotEmpty()) {
-                val sampleUris = pendingSamples.toList().map { it.uri }
-                val dataset = ingestImages(sampleUris, context, log = false)
-                dataset.samples.forEachIndexed { i, sample ->
-                    sample.type = "Sample"
-                    sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
+                try {
+                    val sampleUris = pendingSamples.toList().map { it.uri }
+                    val dataset = ingestImages(sampleUris, context, log = false)
+                    dataset.samples.forEachIndexed { i, sample ->
+                        sample.type = "Sample"
+                        sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
+                    }
+                    newDataset = dataset
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "Ingest", "Failed ingesting samples", e)
                 }
-                newDataset = dataset
             }
 
             isLoading = false
@@ -421,10 +469,85 @@ class DatasetModel : ViewModel() {
         referenceDataset = dataset
     }
 
+    private fun flattenSample(sample: Sample, normalizationStrategy: String): DoubleArray {
+        val data = sample.getNormalizedData(normalizationStrategy, colorMode)
+        return sample.isSelected.indices
+            .filter { sample.isSelected[it] }
+            .flatMap { data[it].toList() }
+            .toDoubleArray()
+    }
+
+    fun runWholeCardClassification() {
+        val ref = referenceDataset ?: return
+        val new = newDataset ?: return
+
+        for (sample in new.samples) {
+            try {
+                sample.classificationResults.clear()
+                val sampleVec = flattenSample(sample, normalizationStrategy)
+
+                var bestScore = Double.MAX_VALUE
+                var bestRef: Sample? = null
+
+                for (refSample in ref.samples) {
+                    val refVec = flattenSample(refSample, normalizationStrategy)
+                    if (refVec.size != sampleVec.size) continue
+
+                    val score = when (distanceMetric) {
+                        "Euclidean" -> {
+                            var sum = 0.0
+                            for (i in sampleVec.indices) {
+                                val diff = sampleVec[i] - refVec[i]
+                                sum += diff * diff
+                            }
+                            sqrt(sum)
+                        }
+                        "Manhattan" -> {
+                            var sum = 0.0
+                            for (i in sampleVec.indices) { sum += abs(sampleVec[i] - refVec[i]) }
+                            sum
+                        }
+                        else -> Double.MAX_VALUE
+                    }
+                    if (score < bestScore) {
+                        bestScore = score
+                        bestRef = refSample
+                    }
+                }
+
+                sample.isSelected.indices.filter { sample.isSelected[it] }.forEachIndexed { _, dotIdx ->
+                    val avgLabel = bestRef?.referenceName ?: ""
+                    sample.classificationResults.clear()
+                    sample.classificationResults.add(
+                        ClassificationResult(
+                            wellIndex = -1,
+                            assignedLabel = avgLabel,
+                            closestReferenceName = avgLabel,
+                            distanceScore = if (bestScore == Double.MAX_VALUE) -1.0 else bestScore
+                        )
+                    )
+                    sample.names.clear()
+                    sample.names.add(avgLabel)
+                }
+                bestRef?.names?.let { refNames ->
+                    sample.names.clear()
+                    sample.names.addAll(refNames)
+                }
+            } catch (e: Exception) {
+                Log.e("Classification", "Whole card classification failed for sample", e)
+            }
+        }
+    }
+
     fun runClassification() {
-        val ref = referenceDataset; val new = newDataset
+        val ref = referenceDataset
+        val new = newDataset
         if (ref == null || new == null) return
-        new.classify(ref, new, distanceMetric, colorMode, normalizationStrategy)
+        if (comparisonMode == "Whole Card") {
+            runWholeCardClassification()
+        } else {
+            new.classify(ref, new, distanceMetric, colorMode, normalizationStrategy)
+        }
     }
 
     fun reset() {
@@ -435,6 +558,7 @@ class DatasetModel : ViewModel() {
         newDataset = null
         importedFileName = "data.csv"
         importedFileUri = null
+        comparisonMode = "Per Color"
     }
 
     fun toCsvString(header: String = "", includeHeader: Boolean = true): String {

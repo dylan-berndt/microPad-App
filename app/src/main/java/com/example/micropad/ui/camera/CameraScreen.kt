@@ -38,6 +38,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
+import com.example.micropad.data.ErrorHandler
 import java.io.File
 
 /**
@@ -143,7 +144,7 @@ private fun CameraContent(onImagesProcessed: (List<Uri>) -> Unit) {
                 )
             } else {
                 ImagePreviewScreen(
-                    imageUri = latestCapturedUri!!,
+                    imageUri = latestCapturedUri ?: return,
                     onRetake = { latestCapturedUri = null },
                     onUsePhoto = {
                         capturedUris.add(latestCapturedUri!!)
@@ -248,7 +249,9 @@ fun CameraPreview(
                         }
 
                         override fun onError(exception: ImageCaptureException) {
-                            exception.printStackTrace()
+                            ErrorHandler.safeExecute(context) {
+                                throw exception
+                            }
                         }
                     }
                 )
@@ -368,36 +371,40 @@ fun NextStepPrompt(
  * @return Unit
  */
 private fun saveImageToGallery(context: Context, uri: Uri) {
-    val contentValues = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")
-        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/microPad")
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-    }
+    ErrorHandler.safeExecute(context) {
 
-    val resolver = context.contentResolver
-    val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
 
-    imageUri?.let { targetUri ->
-        try {
-            resolver.openOutputStream(targetUri).use { outputStream ->
-                context.contentResolver.openInputStream(uri).use { inputStream ->
-                    inputStream?.copyTo(outputStream!!)
-                }
-            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                resolver.update(targetUri, contentValues, null, null)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/microPad")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            resolver.delete(targetUri, null, null)
-            Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
         }
-    } ?: run {
-        Toast.makeText(context, "Failed to create gallery entry", Toast.LENGTH_SHORT).show()
+
+        val resolver = context.contentResolver
+        val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw Exception("Failed to create gallery entry")
+
+        val outputStream = resolver.openOutputStream(imageUri)
+            ?: throw Exception("Output stream is null")
+
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: throw Exception("Input stream is null")
+
+        outputStream.use { out ->
+            inputStream.use { input ->
+                input.copyTo(out)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(imageUri, contentValues, null, null)
+        }
+
+        Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
     }
 }

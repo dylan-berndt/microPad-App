@@ -12,6 +12,9 @@ import androidx.compose.ui.platform.LocalContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import androidx.compose.foundation.layout.Column
+import com.example.micropad.data.writeToCsv
+import com.example.micropad.data.AppErrorLogger
 
 /**
  * Provide a UI button to launch a file picker for creating a new CSV or appending to an existing one.
@@ -28,8 +31,11 @@ fun CsvExportButton(dataRows: String, type: String, initialFilename: String? = "
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri: Uri? ->
-        uri?.let { writeToCsv(dataRows, type, it, context) }
-        navHome()
+        if (uri != null) {
+            writeToCsv(dataRows, type, uri, context)
+            navHome()
+        }
+        // user cancelled picker — do nothing
     }
 
     Button(onClick = {
@@ -131,7 +137,9 @@ fun writeToCsv(newData: String, type: String, filePath: Uri, context: Context) {
             }
         }
     } catch (e: IOException) {
-        Log.e("CsvExportHelper", "Atomic write failed", e)
+        AppErrorLogger.logError(context, "CSV", "writeToCsv: atomic write failed", e)
+    } catch (e: Exception) {
+        AppErrorLogger.logError(context, "CSV", "writeToCsv: unexpected error", e)
     } finally {
         if (tempFile.exists()) {
             tempFile.delete()

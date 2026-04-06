@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
+import androidx.compose.ui.graphics.Color
 
 /**
  * Display the import screen for CSV files.
@@ -90,9 +91,12 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
             }
         }
 
-        // Normalization selector
+// Normalization selector
         Text("Step 4: Choose normalization method")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             normalizationOptions.forEach { option ->
                 FilterChip(
                     selected = viewModel.normalizationStrategy == option,
@@ -100,6 +104,31 @@ fun ImportScreen(viewModel: DatasetModel, navController: NavController) {
                     label = { Text(option) }
                 )
             }
+        }
+
+        // Comparison mode selector
+        Text("Step 5: Choose comparison mode")
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("Per Color", "Whole Card").forEach { option ->
+                FilterChip(
+                    selected = viewModel.comparisonMode == option,
+                    onClick = { viewModel.comparisonMode = option },
+                    label = { Text(option) }
+                )
+            }
+        }
+        if (viewModel.comparisonMode == "Whole Card") {
+            Text(
+                text = "Whole card compares the entire sample as one unit against each reference.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+        } else {
+            Text(
+                text = "Per color compares each dye well individually against the reference.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
         }
 
         Divider()

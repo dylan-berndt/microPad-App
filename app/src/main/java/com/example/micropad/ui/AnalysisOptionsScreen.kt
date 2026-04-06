@@ -54,7 +54,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Distance metric selector
-        Text("Step 2: Choose distance metric")
+        Text("Choose distance metric")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             distanceOptions.forEach { option ->
                 FilterChip(

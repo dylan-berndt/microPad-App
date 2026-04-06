@@ -188,7 +188,7 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
  */
 @Composable
 fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
-    val csvData = viewModel.toCsvString()
+    val csvData = viewModel.toCsvString(datasetChoice="reference")
 
     AlertDialog(
         title = { Text("Export Reference Data") },
@@ -223,7 +223,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
         }
     } else {
         val combinedSamples = mutableListOf<com.example.micropad.data.Sample>()
-        viewModel.referenceDataset?.samples?.let { combinedSamples.addAll(it) }
+        viewModel.referenceDataset?.samples?.let { it1 -> combinedSamples.addAll(it1.filter { it2 -> it2.isImage }) }
         viewModel.newDataset?.samples?.let { combinedSamples.addAll(it) }
 
         if (combinedSamples.isEmpty()) {

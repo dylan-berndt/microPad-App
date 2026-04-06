@@ -63,7 +63,8 @@ class Sample(
     val initialOrdering: Bitmap?,
     val dots: MutableList<Pair<MatOfPoint, Scalar>>,
     val squares: MutableList<Scalar> = mutableListOf<Scalar>(),
-    var type: String = "Sample" // "Reference" or "Sample"
+    var type: String = "Sample", // "Reference" or "Sample"
+    val isImage: Boolean = true
 ) {
     var rgb: MutableList<Scalar> = dots.map { it.second }.toMutableList()
     var greyscale: MutableList<Double> =
@@ -127,7 +128,7 @@ class Sample(
         }
 
         // Remove calibration square data from final color data
-        normalized = normalized.subList(0, normalized.size - 4)
+        normalized = normalized.subList(0, normalized.size - squares.size)
 
         return normalized
     }
@@ -259,7 +260,8 @@ class SampleDataset(val samples: MutableList<Sample>) {
 
             val header = lines[0].trimStart('\uFEFF').split(",")
             val metadataColumns = 4
-            val colorColumns = header.drop(metadataColumns)
+            val calibrationColumns = 12
+            val colorColumns = header.drop(metadataColumns + calibrationColumns)
             val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
             val numberOfDots = dyeNames.size
 
@@ -267,20 +269,25 @@ class SampleDataset(val samples: MutableList<Sample>) {
                 if (line.isBlank()) return@forEach
                 try {
                     val tokens = line.split(",")
-                    if (tokens.size < metadataColumns + numberOfDots * 3) return@forEach
+                    if (tokens.size < metadataColumns + calibrationColumns + numberOfDots * 3) return@forEach
                     val refName = tokens[1].trim()
-                    val colors = tokens.drop(metadataColumns).chunked(3).take(numberOfDots).map { chunk ->
+                    val numCalPoints = calibrationColumns / 3
+                    val colors = tokens.drop(metadataColumns).chunked(3).take(numCalPoints + numberOfDots).map { chunk ->
                         Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
-                    }
-                    val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
-                    val sample = Sample(null, null, null, dots, type = "Reference")
+                    }.toMutableList()
+
+                    val dots = colors.subList(numCalPoints, colors.size).map { Pair(MatOfPoint(), it) }.toMutableList()
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints))
                     sample.names.clear(); sample.names.addAll(dyeNames)
-                    sample.rgb = colors.toMutableList()
                     sample.referenceName = refName
                     samples.add(sample)
+                    Log.d("CSV", "Sample added: ${sample.rgb.size} dots identified")
+
                 } catch (e: Exception) {
                     AppErrorLogger.logError(context, "CSV", "fromCSV: failed to parse row: $line", e)
                 }
+
+                Log.d("CSV", "Samples imported: ${samples.size}")
             }
         } catch (e: Exception) {
             AppErrorLogger.logError(context, "CSV", "fromCSV: unexpected failure", e)
@@ -561,20 +568,58 @@ class DatasetModel : ViewModel() {
         comparisonMode = "Per Color"
     }
 
-    fun toCsvString(header: String = "", includeHeader: Boolean = true): String {
-        val dataset = newDataset ?: return ""
-        val rows = dataset.samples.joinToString("\n") { sample ->
-            val selectedIndices = sample.isSelected.indices.filter { sample.isSelected[it] }
+    fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
+        var table: SampleDataset? = null
+        if (datasetChoice == "sample") {
+            table = newDataset ?: return ""
+        }
+        else {
+            table = referenceDataset ?: return ""
+        }
+
+        // Build header from first sample's well names
+        val firstSample = table.samples.firstOrNull() ?: return ""
+        val selectedIndices = firstSample.isSelected.indices.filter { firstSample.isSelected[it] }
+        val dyeHeaders = selectedIndices.flatMap { i ->
+            val name = firstSample.names[i]
+            listOf("${name}_r", "${name}_g", "${name}_b")
+        }
+        // Calibration data portion of the header
+        val calHeaders = listOf(
+            "cal0_r","cal0_g","cal0_b",
+            "cal1_r","cal1_g","cal1_b",
+            "cal2_r","cal2_g","cal2_b",
+            "cal3_r","cal3_g","cal3_b"
+        )
+        // Header built from a sample dynamically
+        val header = (listOf("sample_id","reference_name","distance_calculation","similarity_score")
+                + calHeaders + dyeHeaders).joinToString(",")
+
+        val rows = table.samples.mapIndexed { sampleIdx, sample ->
+            val selectedIndices = firstSample.isSelected.indices
+                .filter { firstSample.isSelected[it] }
+                .sortedBy { firstSample.names[it] }
+
+            val distScore = sample.classificationResults.firstOrNull()?.distanceScore ?: ""
+            val refName = sample.referenceName.ifBlank {
+                sample.classificationResults.firstOrNull()?.closestReferenceName ?: ""
+            }
+            val meta = listOf(sampleIdx.toString(), refName, distanceMetric, distScore.toString())
+
+            val cal = sample.squares.take(4).flatMap {
+                listOf(it.`val`[0], it.`val`[1], it.`val`[2])
+            }.map { it.toString() }
+
             val rgbParts = selectedIndices.flatMap { index ->
                 val scalar = sample.rgb[index]
                 listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
             }.map { it.toString() }
-            val nameParts = selectedIndices.map { index ->
-                val name = sample.names[index]
-                "\"${name.replace("\"", "\"\"")}\""
-            }
-            (rgbParts + nameParts).joinToString(",")
+
+            (meta + cal + rgbParts).joinToString(",")
         }
-        return if (includeHeader && header.isNotEmpty()) "$header\n$rows" else rows
+
+        val body = rows.joinToString("\n")
+
+        return if (includeHeader) "$header\n$body" else body
     }
 }

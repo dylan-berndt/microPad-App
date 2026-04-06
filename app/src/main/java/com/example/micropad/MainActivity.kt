@@ -251,14 +251,14 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
 fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
 
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
             ErrorReportBanner()
             Text(
                 text = "Analyze microPAD",

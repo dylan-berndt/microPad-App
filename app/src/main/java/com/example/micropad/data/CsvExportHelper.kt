@@ -82,9 +82,18 @@ fun writeToCsv(newData: String, type: String, filePath: Uri, context: Context) {
         }
 
         // 2. Identify header and sections
-        val defaultHeader = "sample_id,reference_name,distance_calculation,similarity_score,No Dye_r,No Dye_g,No Dye_b,DMGO_r,DMGO_g,DMGO_b,XO_r,XO_g,XO_b,Phen_r,Phen_g,Phen_b,DCP_r,DCP_g,DCP_b,PAR_r,PAR_g,PAR_b"
-        val header = if (existingLines.isNotEmpty() && existingLines[0].contains(",")) existingLines[0] else defaultHeader
-        
+        val incomingLines = newData.split("\n").map { it.trim() }
+        val incomingHeader = if (incomingLines.first().contains("_r,") || incomingLines.first().startsWith("sample_id")) {
+            incomingLines.first()
+        } else null
+        val incomingRows = if (incomingHeader != null) incomingLines.drop(1) else incomingLines
+
+        val header = if (existingLines.isNotEmpty() && existingLines[0].contains(",")) {
+            existingLines[0]
+        } else {
+            incomingHeader ?: return
+        }
+
         val contentRows = if (existingLines.isNotEmpty() && existingLines[0] == header) existingLines.drop(1) else existingLines
         
         // Find the blank row that separates references from samples
@@ -98,29 +107,26 @@ fun writeToCsv(newData: String, type: String, filePath: Uri, context: Context) {
             references.addAll(contentRows.filter { it.isNotBlank() })
         } else {
             references.addAll(contentRows.subList(0, blankRowIndex).filter { it.isNotBlank() })
-            samples.addAll(contentRows.subList(blankRowIndex + 1, contentRows.size).filter { it.isNotBlank() })
+            samples.addAll(
+                contentRows.subList(blankRowIndex + 1, contentRows.size).filter { it.isNotBlank() })
         }
-
-        // 3. Prepare new rows and check for duplicates in the target section
-        val rowsToAdd = newData.split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
         
         val isReferences = type.equals("references", ignoreCase = true)
         val targetList = if (isReferences) references else samples
         
-        for (row in rowsToAdd) {
+        for (row in incomingRows.filter { it.isNotBlank() }) {
             if (!targetList.contains(row)) {
                 targetList.add(row)
             }
         }
 
-        // 4. Construct final CSV content with sections
         val finalContent = buildString {
             appendLine(header)
             references.forEach { appendLine(it) }
-            appendLine() // The mandatory blank row separator
-            samples.forEach { appendLine(it) }
+            appendLine()
+            samples.forEachIndexed { i, row ->
+                if (i < samples.lastIndex) appendLine(row) else append(row)
+            }
         }
 
         // 5. Write to a temporary file first

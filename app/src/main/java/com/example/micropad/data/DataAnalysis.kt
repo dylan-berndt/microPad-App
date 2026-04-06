@@ -20,6 +20,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import android.util.Log
 import com.example.micropad.data.ingestImages
+import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -44,6 +45,10 @@ data class ClassificationResult(
     val distanceScore: Double
 )
 
+fun greyscale(r: Double, g: Double, b: Double): Double {
+    return 0.299 * r + 0.587 * g + 0.114 * b
+}
+
 /**
  * A sample to hold data on images.
  *
@@ -57,11 +62,12 @@ class Sample(
     val balanced: Mat?,
     val initialOrdering: Bitmap?,
     val dots: MutableList<Pair<MatOfPoint, Scalar>>,
+    val squares: MutableList<Scalar> = mutableListOf<Scalar>(),
     var type: String = "Sample" // "Reference" or "Sample"
 ) {
     var rgb: List<Scalar> = dots.map { it.second }
     var greyscale: List<Double> =
-        rgb.map { 0.299 * it.`val`[0] + 0.587 * it.`val`[1] + 0.114 * it.`val`[2] }
+        rgb.map { greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
@@ -82,17 +88,21 @@ class Sample(
      * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
      */
     fun getNormalizedData(strategy: String, mode: String): List<DoubleArray> {
+        val greySquares = squares.map{ greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }
+
         val rawData = if (mode == "RGB") {
-            rgb.map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
+            // Append calibration square data to rgb data before normalizing
+            (rgb + squares).map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
         } else {
-            greyscale.map { doubleArrayOf(it) }
+            // Create greyscale values from calibration squares and append
+            (greyscale + greySquares).map { doubleArrayOf(it) }
         }
 
         if (strategy == "None" || rawData.isEmpty()) return rawData
 
         val numDots = rawData.size
         val numFeatures = rawData[0].size
-        val normalized = List(numDots) { DoubleArray(numFeatures) }
+        var normalized = List(numDots) { DoubleArray(numFeatures) }
 
         for (f in 0 until numFeatures) {
             val vals = rawData.map { it[f] }
@@ -116,6 +126,10 @@ class Sample(
                 normalized[i][f] = transformed[i]
             }
         }
+
+        // Remove calibration square data from final color data
+        normalized = normalized.subList(0, normalized.size - 4)
+
         return normalized
     }
 

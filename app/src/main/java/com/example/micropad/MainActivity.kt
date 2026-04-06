@@ -1,6 +1,7 @@
 package com.example.micropad
 
 import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -17,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,6 +35,8 @@ import com.example.micropad.ui.WellNamingScreen
 import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.GalleryReferenceFlow
 import com.example.micropad.ui.LabelingScreen
+import com.example.micropad.data.ErrorHandler
+import com.example.micropad.data.AppErrorLogger
 import com.example.micropad.ui.theme.MicroPadTheme
 import org.opencv.android.OpenCVLoader
 
@@ -49,9 +53,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!OpenCVLoader.initLocal()) {
-            Log.e("OpenCV", "Failed to load OpenCV")
-        }
+        ErrorHandler.safeExecute(this) {
+                if (!OpenCVLoader.initLocal()) {
+                    throw Exception("OpenCV failed to load")
+                }
+            }
 
         enableEdgeToEdge()
         setContent {
@@ -139,42 +145,72 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
     )
 }
 
-@Composable
-fun FrontPage(navController: NavController, viewModel: DatasetModel) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            val hasData = viewModel.pendingReferences.isNotEmpty() ||
-                          viewModel.pendingSamples.isNotEmpty() ||
-                          viewModel.referenceDataset != null
+    @Composable
+    fun ErrorReportBanner() {
+        val context = LocalContext.current
+        var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
+        if (!showDialog) return
 
-            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
-                             viewModel.pendingSamples.isNotEmpty()
-
-            val canExportReference = viewModel.pendingReferences.isNotEmpty()
-
-            val openAlertDialog = remember {mutableStateOf(false)}
-
-            when {
-                openAlertDialog.value -> {
-                    ReferenceOnlyDialog(
-                        navigate = {navController.navigate("namingScreen")},
-                        onDismissRequest = { openAlertDialog.value = false })
-                }
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Share system errors to improve the app?") },
+            text = {
+                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val intent = AppErrorLogger.buildShareIntent(context)
+                    if (intent != null) {
+                        context.startActivity(Intent.createChooser(intent, "Share error log"))
+                    }
+                    AppErrorLogger.clearLog(context)
+                    showDialog = false
+                }) { Text("Share") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    AppErrorLogger.clearLog(context)
+                    showDialog = false
+                }) { Text("Dismiss") }
             }
+        )
+    }
+    @Composable
+    fun FrontPage(navController: NavController, viewModel: DatasetModel) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                val hasData = viewModel.pendingReferences.isNotEmpty() ||
+                              viewModel.pendingSamples.isNotEmpty() ||
+                              viewModel.referenceDataset != null
 
-            Column {
-                if (hasData) {
-                    OutlinedButton(
-                        onClick = { viewModel.reset() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Restart Data Upload")
+                val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
+                                 viewModel.pendingSamples.isNotEmpty()
+
+                val canExportReference = viewModel.pendingReferences.isNotEmpty()
+
+                val openAlertDialog = remember {mutableStateOf(false)}
+
+                when {
+                    openAlertDialog.value -> {
+                        ReferenceOnlyDialog(
+                            navigate = {navController.navigate("namingScreen")},
+                            onDismissRequest = { openAlertDialog.value = false })
                     }
                 }
+
+                Column {
+                    if (hasData) {
+                        OutlinedButton(
+                            onClick = { viewModel.reset() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restart Data Upload")
+                        }
+                    }
 
                 Button(
                     onClick = {
@@ -215,19 +251,20 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
 fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        Text(
-            text = "Analyze microPAD",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            ErrorReportBanner()
+            Text(
+                text = "Analyze microPAD",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
 
         // Card 1: References
         DataAcquisitionCard(

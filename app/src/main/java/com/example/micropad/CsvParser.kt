@@ -1,8 +1,10 @@
 package com.example.micropad
 
 import android.content.ContentResolver
+import android.content.Context
 import android.net.Uri
 import com.example.micropad.CsvParser.expectedHeaders
+import com.example.micropad.data.ErrorHandler
 
 /**
  * A utility class for parsing and validating CSV files.
@@ -13,24 +15,30 @@ import com.example.micropad.CsvParser.expectedHeaders
  */
 object CsvParser {
 
-    private val expectedHeaders = listOf("id", "name", "email")
+    private val expectedHeaders = listOf(
+        "sample_id", "reference_name",
+        "distance_calculation", "similarity_score"
+    )
 
     fun parseAndValidate(
         contentResolver: ContentResolver,
-        uri: Uri
+        uri: Uri,
+        context: Context
     ): Boolean {
 
-        return try {
+        return ErrorHandler.safeExecute(context, false) {
+
             val inputStream = contentResolver.openInputStream(uri)
-            val text = inputStream?.bufferedReader()?.use { it.readText() }
+                ?: throw Exception("Cannot open file")
 
-            val firstLine = text?.lines()?.firstOrNull()
-            val headers = firstLine?.split(",")?.map { it.trim() }
+            val text = inputStream.bufferedReader().use { it.readText() }
 
-            headers == expectedHeaders
+            val headers = text.lines().firstOrNull()
+                ?.split(",")
+                ?.map { it.trim() }
+                ?: throw Exception("Invalid CSV format")
 
-        } catch (e: Exception) {
-            false
-        }
+            headers.containsAll(expectedHeaders)
+        } ?: false
     }
 }

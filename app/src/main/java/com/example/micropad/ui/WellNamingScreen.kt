@@ -1,6 +1,7 @@
 package com.example.micropad.ui
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -66,6 +67,12 @@ fun stringToURIs(data: String): List<Uri> {
  */
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
+
+    // Log the dataset along with its contents
+    val TAG = "WellNamingGrid"
+    Log.d(TAG, "Dataset: $dataset")
+    Log.d(TAG, "Samples: ${dataset.samples}")
+
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
 
     val texts = remember { mutableStateListOf<String>().apply { repeat(numberOfDots) { add("") } } }
@@ -181,7 +188,7 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
  */
 @Composable
 fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
-    val csvData = viewModel.toCsvString()
+    val csvData = viewModel.toCsvString(datasetChoice="reference")
 
     AlertDialog(
         title = { Text("Export Reference Data") },
@@ -216,7 +223,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
         }
     } else {
         val combinedSamples = mutableListOf<com.example.micropad.data.Sample>()
-        viewModel.referenceDataset?.samples?.let { combinedSamples.addAll(it) }
+        viewModel.referenceDataset?.samples?.let { it1 -> combinedSamples.addAll(it1.filter { it2 -> it2.isImage }) }
         viewModel.newDataset?.samples?.let { combinedSamples.addAll(it) }
 
         if (combinedSamples.isEmpty()) {
@@ -352,7 +359,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             Button(
                 onClick = {
                     if (viewModel.newDataset != null) {
-                        navController.navigate("import")
+                        navController.navigate("options")
                     }
                     else {
                         openAlertDialog.value = true;

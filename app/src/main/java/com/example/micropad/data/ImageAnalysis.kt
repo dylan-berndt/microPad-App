@@ -18,6 +18,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -306,6 +307,26 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
     return colors
 }
 
+/**
+ * Find a linear fit that tries to push image brightness towards calibration standard.
+ * Cannot always find a perfect match because this function does not know the expected RGB
+ * values.
+ *
+ * @param measured: List of measured values.
+ * @param expected: List of expected values.
+ * @return Pair<Double, Double>: (scale, offset)
+ */
+fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
+    val n = measured.size
+    val sumX = measured.sum()
+    val sumY = expected.sum()
+    val sumXY = measured.zip(expected).sumOf { it.first * it.second }
+    val sumX2 = measured.sumOf { it * it }
+    val scale = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
+    val offset = (sumY - scale * sumX) / n
+    return Pair(scale, offset)
+}
+
 
 /**
  * Rebalances the image given a set of the found color points and the intended reference color
@@ -319,26 +340,6 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
 fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Mat {
     Log.d("Pipeline", "--- Stage: Color Calibration (Linear Fit) ---")
     val balanced = image.clone()
-
-    /**
-     * Find a linear fit that tries to push image brightness towards calibration standard.
-     * Cannot always find a perfect match because this function does not know the expected RGB
-     * values.
-     *
-     * @param measured: List of measured values.
-     * @param expected: List of expected values.
-     * @return Pair<Double, Double>: (scale, offset)
-     */
-    fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
-        val n = measured.size
-        val sumX = measured.sum()
-        val sumY = expected.sum()
-        val sumXY = measured.zip(expected).sumOf { it.first * it.second }
-        val sumX2 = measured.sumOf { it * it }
-        val scale = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
-        val offset = (sumY - scale * sumX) / n
-        return Pair(scale, offset)
-    }
 
     val rMeasured = found.map { it.`val`[0] }.toDoubleArray()
     val gMeasured = found.map { it.`val`[1] }.toDoubleArray()
@@ -374,6 +375,7 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
  */
 fun getCenter(contour: MatOfPoint): Point {
     val m = Imgproc.moments(contour)
+    if (m.m00 == 0.0) return Point(0.0, 0.0)  // guard
     return Point(m.m10 / m.m00, m.m01 / m.m00)
 }
 
@@ -529,8 +531,8 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
         val moments = Imgproc.moments(colorMask)
         val cx = (moments.m10 / moments.m00).toInt()
         val cy = (moments.m01 / moments.m00).toInt()
-        val pixel = extractedMat.get(cy, cx)
-        Scalar(pixel[0], pixel[1], pixel[2], 255.0)
+        // Takes mean of a small rectangle of pixels to reduce noise
+        Core.mean(extractedMat.submat(Rect(cx - 2, cy - 2, 5, 5)))
     }
     hsv.release(); colorMask.release(); whiteMask.release()
     return result
@@ -614,24 +616,32 @@ val expectedColors = mutableListOf(
  * @param selectionStrategy: Strategy to use for color extraction.
  * @return Sample: Preprocessed image.
  */
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String, selectionStrategy: String): Sample {
-    Log.d("Pipeline", ">>> Pipeline Start: Processing New Image <<<")
-    val contours = findContours(image, context, log)
-    val shapes = findCalibrationSquares(image, contours, context, log)
-    val colors = extractCalibrationColors(shapes)
-    val dots = findDots(image, contours, context, log, selectionStrategy)
+fun preprocessImage(
+    image: Mat, context: Context, log: Boolean,
+    normalizationStrategy: String, selectionStrategy: String
+): Sample? {  // <-- return nullable now
+    return try {
+        val contours = findContours(image, context, log)
+        val shapes = findCalibrationSquares(image, contours, context, log)
+        val colors = extractCalibrationColors(shapes)
+        val dots = findDots(image, contours, context, log, selectionStrategy)
 
-    // Requires that control dot is in top left
-    val controlDot = extractDyeColor(extractContour(image, dots[0].first), selectionStrategy)
+        if (dots.isEmpty()) {
+            AppErrorLogger.logError(context, "ImagePipeline", "No wells detected in image — skipping sample")
+            return null
+        }
 
-    var balanced = image
-    if (normalizationStrategy == "Regression" && colors.size == 4) {
-        balanced = rebalanceImage(image, colors, expectedColors)
+        var balanced = image
+        if (normalizationStrategy == "Regression" && colors.size == 4) {
+            balanced = rebalanceImage(image, colors, expectedColors)
+        }
+
+        val orderingImage = drawOrdering(image, dots)
+        Sample(image, balanced, orderingImage, dots, squares=colors)
+    } catch (e: Exception) {
+        AppErrorLogger.logError(context, "ImagePipeline", "preprocessImage failed", e)
+        null
     }
-
-    val orderingImage = drawOrdering(image, dots)
-    Log.d("Pipeline", "<<< Pipeline Complete: Structured Sample Object Created >>>")
-    return Sample(image, balanced, orderingImage, dots)
 }
 
 /**
@@ -657,27 +667,46 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
  *
  * @return A SampleDataset containing the preprocessed images.
  */
-suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression", selectionStrategy: String = "Mean"): SampleDataset = coroutineScope {
+suspend fun ingestImages(
+    addresses: List<Uri>,
+    context: Context,
+    log: Boolean = false,
+    normalizationStrategy: String = "Regression",
+    selectionStrategy: String = "Mean"
+): SampleDataset = coroutineScope {
     Log.d("Pipeline", "Pipeline Entry: Ingesting ${addresses.size} image(s) from system storage")
     val images = addresses.map { uri ->
         async(Dispatchers.Default) {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close()
-            val mutableBitmap = bitmap!!.copy(Bitmap.Config.ARGB_8888, true)
-            val mat = Mat()
-            Utils.bitmapToMat(mutableBitmap, mat)
-            Log.d("Pipeline", "Data Movement: Converted Android Bitmap to OpenCV Mat (${mat.cols()}x${mat.rows()})")
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: run {
+                        AppErrorLogger.logError(context, "Ingest", "Could not open stream for URI: $uri")
+                        return@async null
+                    }
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
+                if (bitmap == null) {
+                    AppErrorLogger.logError(context, "Ingest", "BitmapFactory returned null for URI: $uri")
+                    return@async null
+                }
+                val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val mat = Mat()
+                Utils.bitmapToMat(mutableBitmap, mat)
+                Log.d("Pipeline", "Data Movement: Converted Android Bitmap to OpenCV Mat (${mat.cols()}x${mat.rows()})")
 
-            val image = Mat()
-            val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
-            Imgproc.resize(mat, image, Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
-            Log.d("Pipeline", "Transformation: Image Resized by factor ${"%.2f".format(ratio)}")
+                val image = Mat()
+                val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
+                Imgproc.resize(mat, image, Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
+                Log.d("Pipeline", "Transformation: Image Resized by factor ${"%.2f".format(ratio)}")
 
-            val cropped = findAndWarpCard(image, context, log) ?: image
-            preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
+                val cropped = findAndWarpCard(image, context, log) ?: image
+                preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
+            } catch (e: Exception) {
+                AppErrorLogger.logError(context, "Ingest", "Failed processing URI: $uri", e)
+                null
+            }
         }
     }.awaitAll()
 
-    SampleDataset(images.toMutableList())
+    SampleDataset(images.filterNotNull().toMutableList())
 }

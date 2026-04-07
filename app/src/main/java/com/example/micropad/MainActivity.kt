@@ -1,6 +1,7 @@
 package com.example.micropad
 
 import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -14,7 +15,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,21 +29,21 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.LabeledImage
 import com.example.micropad.ui.AnalysisScreen
-import com.example.micropad.ui.GalleryPickerScreen
-import com.example.micropad.ui.ImportScreen
+import com.example.micropad.ui.AnalysisConfigScreen
 import com.example.micropad.ui.WellNamingScreen
 import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.GalleryReferenceFlow
 import com.example.micropad.ui.LabelingScreen
+import com.example.micropad.data.ErrorHandler
+import com.example.micropad.data.AppErrorLogger
 import com.example.micropad.ui.theme.MicroPadTheme
 import org.opencv.android.OpenCVLoader
 
 /**
  * Creates the app and sets up the navigation.
  *
- * @param viewModel The view model for the app.
+ * @param sharedViewModel The view model for the app.
  * @receiver The Composable calling this function.
  * @return Unit
  */
@@ -53,9 +53,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!OpenCVLoader.initLocal()) {
-            Log.e("OpenCV", "Failed to load OpenCV")
-        }
+        ErrorHandler.safeExecute(this) {
+                if (!OpenCVLoader.initLocal()) {
+                    throw Exception("OpenCV failed to load")
+                }
+            }
 
         enableEdgeToEdge()
         setContent {
@@ -84,8 +86,8 @@ fun MicroPadApp(viewModel: DatasetModel) {
         composable("namingScreen") {
             WellNamingScreen(viewModel, navController)
         }
-        composable("import") {
-            ImportScreen(viewModel, navController)
+        composable("options") {
+            AnalysisConfigScreen(viewModel, navController)
         }
         composable("analysis") {
             AnalysisScreen(viewModel, navController)
@@ -143,42 +145,72 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
     )
 }
 
-@Composable
-fun FrontPage(navController: NavController, viewModel: DatasetModel) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            val hasData = viewModel.pendingReferences.isNotEmpty() ||
-                          viewModel.pendingSamples.isNotEmpty() ||
-                          viewModel.referenceDataset != null
+    @Composable
+    fun ErrorReportBanner() {
+        val context = LocalContext.current
+        var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
+        if (!showDialog) return
 
-            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
-                             viewModel.pendingSamples.isNotEmpty()
-
-            val canExportReference = viewModel.pendingReferences.isNotEmpty()
-
-            val openAlertDialog = remember {mutableStateOf(false)}
-
-            when {
-                openAlertDialog.value -> {
-                    ReferenceOnlyDialog(
-                        navigate = {navController.navigate("namingScreen")},
-                        onDismissRequest = { openAlertDialog.value = false })
-                }
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Share system errors to improve the app?") },
+            text = {
+                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val intent = AppErrorLogger.buildShareIntent(context)
+                    if (intent != null) {
+                        context.startActivity(Intent.createChooser(intent, "Share error log"))
+                    }
+                    AppErrorLogger.clearLog(context)
+                    showDialog = false
+                }) { Text("Share") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    AppErrorLogger.clearLog(context)
+                    showDialog = false
+                }) { Text("Dismiss") }
             }
+        )
+    }
+    @Composable
+    fun FrontPage(navController: NavController, viewModel: DatasetModel) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                val hasData = viewModel.pendingReferences.isNotEmpty() ||
+                              viewModel.pendingSamples.isNotEmpty() ||
+                              viewModel.referenceDataset != null
 
-            Column {
-                if (hasData) {
-                    OutlinedButton(
-                        onClick = { viewModel.reset() },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Restart Data Upload")
+                val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
+                                 viewModel.pendingSamples.isNotEmpty()
+
+                val canExportReference = viewModel.pendingReferences.isNotEmpty()
+
+                val openAlertDialog = remember {mutableStateOf(false)}
+
+                when {
+                    openAlertDialog.value -> {
+                        ReferenceOnlyDialog(
+                            navigate = {navController.navigate("namingScreen")},
+                            onDismissRequest = { openAlertDialog.value = false })
                     }
                 }
+
+                Column {
+                    if (hasData) {
+                        OutlinedButton(
+                            onClick = { viewModel.reset() },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Restart Data Upload")
+                        }
+                    }
 
                 Button(
                     onClick = {
@@ -186,7 +218,7 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
                             navController.navigate("namingScreen")
                         }
                         else {
-                            openAlertDialog.value = true;
+                            openAlertDialog.value = true
                         }},
                     enabled = canProceed || canExportReference,
                     modifier = Modifier
@@ -208,26 +240,8 @@ fun FrontPage(navController: NavController, viewModel: DatasetModel) {
 }
 
 /**
- * An enum representing the different destinations in the app.
- *
- * @property label The label for the destination.
- * @property icon The icon for the destination.
- * @receiver The Composable calling this function.
- * @return Unit
- */
-enum class AppDestinations(
-    val label: String,
-    val icon: ImageVector,
-) {
-    HOME("Home", Icons.Default.Home),
-    GALLERY("Gallery", Icons.Default.Favorite),
-    CAMERA("Camera", Icons.Default.Add)
-}
-
-/**
  * Show user the main screen of the app.
  *
- * @param name The name to display.
  * @param modifier The modifier to apply to the layout.
  * @param viewModel The view model for the app.
  * @receiver The Composable calling this function.
@@ -245,16 +259,17 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-        Text(
-            text = "Analyze microPAD",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
+            ErrorReportBanner()
+            Text(
+                text = "Analyze microPAD",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold
+            )
 
         // Card 1: References
         DataAcquisitionCard(
             title = "1. Reference Data",
-            description = "Upload known baselines (H2O, standard solutions, etc.)",
+            description = "Upload known baselines (H2O, Fe(III), Fe(II), Ni(II), etc.)",
             count = viewModel.pendingReferences.size + (if (viewModel.referenceDataset != null) 1 else 0),
             onGallery = { navController.navigate("gallery_ref") },
             onCamera = { navController.navigate("camera_ref") },

@@ -1,6 +1,6 @@
 package com.example.micropad.ui
 
-import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,11 +13,15 @@ import coil3.compose.AsyncImage
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.LabeledImage
 
+
 /**
  * Screen to label a batch of images sequentially.
  */
 @Composable
 fun LabelingScreen(viewModel: DatasetModel, navController: NavController) {
+
+    val TAG = "LabelingScreen"
+
     val uris = viewModel.temporaryUris
     val isReference = viewModel.labelingTargetIsReference
     
@@ -31,7 +35,9 @@ fun LabelingScreen(viewModel: DatasetModel, navController: NavController) {
     }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -43,7 +49,10 @@ fun LabelingScreen(viewModel: DatasetModel, navController: NavController) {
         AsyncImage(
             model = uris[currentIndex],
             contentDescription = null,
-            modifier = Modifier.fillMaxWidth().height(300.dp).padding(vertical = 24.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .padding(vertical = 24.dp),
             contentScale = ContentScale.Fit
         )
 
@@ -78,11 +87,19 @@ fun LabelingScreen(viewModel: DatasetModel, navController: NavController) {
                         currentLabel = ""
                     } else {
                         // Finish: Map URIs to LabeledImages and add to ViewModel
-                        val labeledResults = uris.mapIndexed { i, uri -> LabeledImage(uri, labels[i]) }
+                        val labeledImages = uris.mapIndexed { i, uri -> LabeledImage(uri, labels[i]) }
                         if (isReference) {
-                            viewModel.pendingReferences.addAll(labeledResults)
+                            viewModel.pendingReferences.addAll(labeledImages)
+                            // Log pending references
+                            viewModel.pendingReferences.forEach {
+                                Log.d(TAG, "Pending Reference: ${it.uri} - ${it.label}")
+                            }
                         } else {
-                            viewModel.pendingSamples.addAll(labeledResults)
+                            viewModel.pendingSamples.addAll(labeledImages)
+                            // Log pending samples
+                            viewModel.pendingSamples.forEach {
+                                Log.d(TAG, "Pending Sample: ${it.uri} - ${it.label}")
+                            }
                         }
                         viewModel.temporaryUris = emptyList()
                         navController.popBackStack("home", false)

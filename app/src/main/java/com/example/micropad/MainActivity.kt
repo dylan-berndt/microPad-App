@@ -54,10 +54,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         ErrorHandler.safeExecute(this) {
-                if (!OpenCVLoader.initLocal()) {
-                    throw Exception("OpenCV failed to load")
-                }
+            if (!OpenCVLoader.initLocal()) {
+                throw Exception("OpenCV failed to load")
             }
+        }
 
         enableEdgeToEdge()
         setContent {
@@ -140,86 +140,90 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
         title = { Text("No Sample Data") },
         text = { Text("You have only imported reference data. Move on only if you are only exporting a reference sheet for later use.") },
         onDismissRequest = onDismissRequest,
-        confirmButton = {TextButton(onClick = navigate) { Text("Next") }},
-        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+        confirmButton = { TextButton(onClick = navigate) { Text("Next") } },
+        dismissButton = { TextButton(onClick = onDismissRequest) { Text("Return") } }
     )
 }
 
-    @Composable
-    fun ErrorReportBanner() {
-        val context = LocalContext.current
-        var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
-        if (!showDialog) return
+@Composable
+fun ErrorReportBanner() {
+    val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
+    if (!showDialog) return
 
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("Share system errors to improve the app?") },
-            text = {
-                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val intent = AppErrorLogger.buildShareIntent(context)
-                    if (intent != null) {
-                        context.startActivity(Intent.createChooser(intent, "Share error log"))
-                    }
-                    AppErrorLogger.clearLog(context)
-                    showDialog = false
-                }) { Text("Share") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    AppErrorLogger.clearLog(context)
-                    showDialog = false
-                }) { Text("Dismiss") }
+    AlertDialog(
+        onDismissRequest = { showDialog = false },
+        title = { Text("Share system errors to improve the app?") },
+        text = {
+            Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val intent = AppErrorLogger.buildShareIntent(context)
+                if (intent != null) {
+                    context.startActivity(Intent.createChooser(intent, "Share error log"))
+                }
+                AppErrorLogger.clearLog(context)
+                showDialog = false
+            }) { Text("Share") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                AppErrorLogger.clearLog(context)
+                showDialog = false
+            }) { Text("Dismiss") }
+        }
+    )
+}
+
+@Composable
+fun FrontPage(navController: NavController, viewModel: DatasetModel) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            val hasData = viewModel.pendingReferences.isNotEmpty() ||
+                    viewModel.pendingSamples.isNotEmpty() ||
+                    viewModel.referenceDataset != null
+
+            val canProceed =
+                (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
+                        viewModel.pendingSamples.isNotEmpty()
+
+            val canExportReference = viewModel.pendingReferences.isNotEmpty()
+
+            val openAlertDialog = remember { mutableStateOf(false) }
+
+            when {
+                openAlertDialog.value -> {
+                    ReferenceOnlyDialog(
+                        navigate = { navController.navigate("namingScreen") },
+                        onDismissRequest = { openAlertDialog.value = false })
+                }
             }
-        )
-    }
-    @Composable
-    fun FrontPage(navController: NavController, viewModel: DatasetModel) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            bottomBar = {
-                val hasData = viewModel.pendingReferences.isNotEmpty() ||
-                              viewModel.pendingSamples.isNotEmpty() ||
-                              viewModel.referenceDataset != null
 
-                val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
-                                 viewModel.pendingSamples.isNotEmpty()
-
-                val canExportReference = viewModel.pendingReferences.isNotEmpty()
-
-                val openAlertDialog = remember {mutableStateOf(false)}
-
-                when {
-                    openAlertDialog.value -> {
-                        ReferenceOnlyDialog(
-                            navigate = {navController.navigate("namingScreen")},
-                            onDismissRequest = { openAlertDialog.value = false })
+            Column {
+                if (hasData) {
+                    OutlinedButton(
+                        onClick = { viewModel.reset() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restart Data Upload")
                     }
                 }
-
-                Column {
-                    if (hasData) {
-                        OutlinedButton(
-                            onClick = { viewModel.reset() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Restart Data Upload")
-                        }
-                    }
 
                 Button(
                     onClick = {
                         if (canProceed) {
                             navController.navigate("namingScreen")
-                        }
-                        else {
+                        } else {
                             openAlertDialog.value = true
-                        }},
+                        }
+                    },
                     enabled = canProceed || canExportReference,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -259,12 +263,12 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
-            ErrorReportBanner()
-            Text(
-                text = "Analyze microPAD",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
+        ErrorReportBanner()
+        Text(
+            text = "Analyze microPAD",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
 
         // Card 1: References
         DataAcquisitionCard(
@@ -308,13 +312,20 @@ fun DataAcquisitionCard(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
                 if (count > 0) {
                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
                         Text("$count added", color = Color.White, modifier = Modifier.padding(4.dp))
@@ -322,16 +333,31 @@ fun DataAcquisitionCard(
                 }
             }
 
-            Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(onClick = onGallery, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Gallery", fontSize = 12.sp)
                 }
                 OutlinedButton(onClick = onCamera, modifier = Modifier.weight(1f)) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Camera", fontSize = 12.sp)
                 }

@@ -18,6 +18,7 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -306,6 +307,26 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
     return colors
 }
 
+/**
+ * Find a linear fit that tries to push image brightness towards calibration standard.
+ * Cannot always find a perfect match because this function does not know the expected RGB
+ * values.
+ *
+ * @param measured: List of measured values.
+ * @param expected: List of expected values.
+ * @return Pair<Double, Double>: (scale, offset)
+ */
+fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
+    val n = measured.size
+    val sumX = measured.sum()
+    val sumY = expected.sum()
+    val sumXY = measured.zip(expected).sumOf { it.first * it.second }
+    val sumX2 = measured.sumOf { it * it }
+    val scale = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
+    val offset = (sumY - scale * sumX) / n
+    return Pair(scale, offset)
+}
+
 
 /**
  * Rebalances the image given a set of the found color points and the intended reference color
@@ -319,26 +340,6 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
 fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Mat {
     Log.d("Pipeline", "--- Stage: Color Calibration (Linear Fit) ---")
     val balanced = image.clone()
-
-    /**
-     * Find a linear fit that tries to push image brightness towards calibration standard.
-     * Cannot always find a perfect match because this function does not know the expected RGB
-     * values.
-     *
-     * @param measured: List of measured values.
-     * @param expected: List of expected values.
-     * @return Pair<Double, Double>: (scale, offset)
-     */
-    fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
-        val n = measured.size
-        val sumX = measured.sum()
-        val sumY = expected.sum()
-        val sumXY = measured.zip(expected).sumOf { it.first * it.second }
-        val sumX2 = measured.sumOf { it * it }
-        val scale = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
-        val offset = (sumY - scale * sumX) / n
-        return Pair(scale, offset)
-    }
 
     val rMeasured = found.map { it.`val`[0] }.toDoubleArray()
     val gMeasured = found.map { it.`val`[1] }.toDoubleArray()
@@ -530,8 +531,8 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
         val moments = Imgproc.moments(colorMask)
         val cx = (moments.m10 / moments.m00).toInt()
         val cy = (moments.m01 / moments.m00).toInt()
-        val pixel = extractedMat.get(cy, cx)
-        Scalar(pixel[0], pixel[1], pixel[2], 255.0)
+        // Takes mean of a small rectangle of pixels to reduce noise
+        Core.mean(extractedMat.submat(Rect(cx - 2, cy - 2, 5, 5)))
     }
     hsv.release(); colorMask.release(); whiteMask.release()
     return result
@@ -636,7 +637,7 @@ fun preprocessImage(
         }
 
         val orderingImage = drawOrdering(image, dots)
-        Sample(image, balanced, orderingImage, dots)
+        Sample(image, balanced, orderingImage, dots, squares=colors)
     } catch (e: Exception) {
         AppErrorLogger.logError(context, "ImagePipeline", "preprocessImage failed", e)
         null

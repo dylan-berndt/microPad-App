@@ -644,6 +644,12 @@ fun findDots(
     val finalDots =
         sizeSorted.filter { abs(it.second - medianArea) / medianArea < 0.2 }.map { it.first }
 
+    // Loop over finalDots to log the data points
+    Log.d("Pipeline", "Data Movement: Final ${finalDots.size} wells identified")
+    for (dot in finalDots) {
+        Log.d("Pipeline", "Data Point: $dot")
+    }
+
     Log.d("Pipeline", "Data Movement: Mapping wells to 2D grid structure")
     val indexed = assignGridIndices(finalDots)
     val sorted =

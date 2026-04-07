@@ -54,14 +54,13 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
 
     // Coil & OpenCV
-    val activity_version = ""
-    implementation("androidx.activity:activity:$activity_version")
-    implementation("androidx.activity:activity-ktx:$activity_version")
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.activity.ktx)
 
-    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
-    implementation("org.opencv:opencv:4.9.0")
+    implementation(libs.opencv)
 
     // Camera
     implementation(libs.androidx.camera.core)

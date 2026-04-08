@@ -16,9 +16,32 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -102,23 +125,7 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     Log.d(TAG, "Samples: ${dataset.samples}")
 
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
-
-    val texts = remember {
-        mutableStateListOf<String>().apply {
-            val existingNames = dataset.samples.getOrNull(0)?.names ?: emptyList()
-            repeat(numberOfDots) { i ->
-                add(existingNames.getOrNull(i) ?: "")
-            }
-        }
-    }
-    val selected = remember {
-        mutableStateListOf<Boolean>().apply {
-            val existingSelected = dataset.samples.getOrNull(0)?.isSelected ?: emptyList()
-            repeat(numberOfDots) { i ->
-                add(existingSelected.getOrNull(i) ?: true)
-            }
-        }
-    }
+    val firstSample = dataset.samples.getOrNull(0)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().height(20.dp)) {
@@ -126,18 +133,20 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
             Text("Region of Interest Name", modifier = Modifier.fillMaxWidth(0.8f))
         }
         LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(texts) { i, _ ->
-                val isSelected = if (i < selected.size) selected[i] else true
+            items(numberOfDots) { i ->
+                val name = firstSample?.names?.getOrNull(i) ?: ""
+                val isSelected = firstSample?.isSelected?.getOrNull(i) ?: true
+
                 Box {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
-                            checked = selected[i],
-                            onCheckedChange = { dataset.toggleWell(i, it); selected[i] = it },
+                            checked = isSelected,
+                            onCheckedChange = { dataset.toggleWell(i, it) },
                             modifier = Modifier.fillMaxWidth(0.2f)
                         )
                         TextField(
-                            value = texts[i],
-                            onValueChange = { dataset.nameWell(i, it); texts[i] = it },
+                            value = name,
+                            onValueChange = { dataset.nameWell(i, it) },
                             label = { Text(text = "ROI ${i + 1}") },
                             placeholder = { Text("Enter a Label") },
                             singleLine = true,
@@ -274,6 +283,19 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             return
         }
 
+        // Apply any saved names from the ViewModel to the samples
+        LaunchedEffect(combinedSamples) {
+            combinedSamples.forEachIndexed { sampleIdx, sample ->
+                viewModel.savedNames.getOrNull(sampleIdx)?.let { names ->
+                    names.forEachIndexed { nameIdx, name ->
+                        if (nameIdx < sample.names.size) {
+                            sample.names[nameIdx] = name
+                        }
+                    }
+                }
+            }
+        }
+
         when {
             openAlertDialog.value -> {
                 ReferenceOnlyDialog(
@@ -376,7 +398,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().clickable { isDropDownExpanded = true }
             ) {
-                Text(text = "Dye Extraction Strategy: ${viewModel.selectionStrategy} ")
+                Text(text = "Dye Extraction Strategy: ${viewModel.ingestSelectionStrategy} ")
                 Icon(
                     painter = painterResource(id = R.drawable.dropdown),
                     contentDescription = "DropDown Icon",
@@ -392,13 +414,20 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                         text = { Text(text = strategy) },
                         onClick = {
                             isDropDownExpanded = false
-                            viewModel.selectionStrategy = strategy
+                            viewModel.ingestSelectionStrategy = strategy
+                            viewModel.ingestAllPending(context) {}
                         })
                 }
             }
 
             Button(
                 onClick = {
+                    // Save names to ViewModel before navigating
+                    viewModel.savedNames.clear()
+                    combinedSamples.forEach { sample ->
+                        viewModel.savedNames.add(sample.names.toList())
+                    }
+
                     if (viewModel.newDataset != null) {
                         navController.navigate("options")
                     }

@@ -107,12 +107,25 @@ suspend fun runNavigationSimulation(
             }
             viewModel.narrationText = text
             delay(time)
+            if (!currentCoroutineContext().isActive || !viewModel.isSimulating) {
+                throw kotlinx.coroutines.CancellationException("Simulation Canceled")
+            }
+        }
+
+        suspend fun pause(time: Long) {
+            if (!currentCoroutineContext().isActive || !viewModel.isSimulating) {
+                throw kotlinx.coroutines.CancellationException("Simulation Canceled")
+            }
+            delay(time)
+            if (!currentCoroutineContext().isActive || !viewModel.isSimulating) {
+                throw kotlinx.coroutines.CancellationException("Simulation Canceled")
+            }
         }
 
         // 1. Reference CSV
         step("First, we upload a CSV for reference baselines.", 5000)
         viewModel.highlightedButtonId = "ref_csv"
-        delay(1500)
+        pause(1500)
         viewModel.highlightedButtonId = null
         
         val mockRef = Sample(null, null, null, mutableListOf(

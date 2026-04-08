@@ -98,7 +98,7 @@ suspend fun runNavigationSimulation(
         viewModel.isSimulating = true
         // Ensure we start from home for the simulation
         navController.navigate("home") {
-            popUpTo(0)
+            popUpTo(navController.graph.startDestinationId)
         }
         
         suspend fun step(text: String, time: Long) {

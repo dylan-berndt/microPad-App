@@ -207,7 +207,7 @@ suspend fun runNavigationSimulation(
         
         if (startRoute != null) {
             navController.navigate(startRoute) {
-                popUpTo(0) { inclusive = true }
+                popUpTo(navController.graph.startDestinationId) { inclusive = true }
             }
         }
     }

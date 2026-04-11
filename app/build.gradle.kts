@@ -5,7 +5,12 @@ plugins {
 
 android {
     namespace = "com.example.micropad"
-    compileSdk = 36
+    compileSdk {
+        version = release(36) {
+            minorApiLevel = 1
+        }
+    }
+    buildToolsVersion = "36.1.0" // or the latest version you have installed
 
     defaultConfig {
         applicationId = "com.example.micropad"
@@ -52,6 +57,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
     implementation(libs.androidx.compose.material.icons.extended)
+    implementation(libs.androidx.compose.foundation.layout)
 
     // Coil & OpenCV
     val activity_version = ""

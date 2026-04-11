@@ -7,7 +7,17 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
@@ -32,11 +42,11 @@ import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.R
+import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
-import com.example.micropad.data.CsvExportButton
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -61,8 +71,23 @@ fun stringToURIs(data: String): List<Uri> {
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
-    val texts = remember { mutableStateListOf<String>().apply { repeat(numberOfDots) { add("") } } }
-    val selected = remember { mutableStateListOf<Boolean>().apply { repeat(numberOfDots) { add(true) } } }
+
+    val texts = remember {
+        mutableStateListOf<String>().apply {
+            val existingNames = dataset.samples.getOrNull(0)?.names ?: emptyList()
+            repeat(numberOfDots) { i ->
+                add(existingNames.getOrNull(i) ?: "")
+            }
+        }
+    }
+    val selected = remember {
+        mutableStateListOf<Boolean>().apply {
+            val existingSelected = dataset.samples.getOrNull(0)?.isSelected ?: emptyList()
+            repeat(numberOfDots) { i ->
+                add(existingSelected.getOrNull(i) ?: true)
+            }
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -159,7 +184,6 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     var focusedIndex by remember { mutableStateOf<Int?>(null) }
     var selectedImage by remember { mutableIntStateOf(-1) }
     val strategies = listOf("Mean", "Center")
-    var selectionStrategy by remember { mutableStateOf("Mean") }
     val openAlertDialog = remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -328,13 +352,13 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Dye Extraction: $selectionStrategy ", style = MaterialTheme.typography.bodySmall)
+                            Text("Dye Extraction: ${viewModel.selectionStrategy} ", style = MaterialTheme.typography.bodySmall)
                             Icon(painterResource(R.drawable.dropdown), null, Modifier.size(12.dp))
                             DropdownMenu(expanded = isDropDownExpanded, onDismissRequest = { isDropDownExpanded = false }) {
                                 strategies.forEach { strategy ->
                                     DropdownMenuItem(
                                         text = { Text(strategy) },
-                                        onClick = { selectionStrategy = strategy; isDropDownExpanded = false }
+                                        onClick = { viewModel.selectionStrategy = strategy; isDropDownExpanded = false }
                                     )
                                 }
                             }

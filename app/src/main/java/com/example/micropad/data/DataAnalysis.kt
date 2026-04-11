@@ -1,26 +1,23 @@
 package com.example.micropad.data
 
-import java.util.Collections
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
-import android.util.Log
-import com.example.micropad.data.ingestImages
-import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -342,7 +339,8 @@ class DatasetModel : ViewModel() {
     var distanceMetric by mutableStateOf("Euclidean")
     var colorMode by mutableStateOf("RGB")
     var normalizationStrategy by mutableStateOf("None")
-    var comparisonMode by mutableStateOf("Whole Card")
+    var comparisonMode by mutableStateOf("Per Color")
+    var selectionStrategy by mutableStateOf("Mean")
 
     /**
      * Ingests all pending images into structured datasets.
@@ -351,15 +349,32 @@ class DatasetModel : ViewModel() {
         viewModelScope.launch {
             isLoading = true
 
+            // Gather existing names/selection to propagate to new samples
+            val existingRefNames = referenceDataset?.samples?.firstOrNull()?.names?.toList()
+            val existingRefSelection = referenceDataset?.samples?.firstOrNull()?.isSelected?.toList()
+            val existingSampleNames = newDataset?.samples?.firstOrNull()?.names?.toList()
+            val existingSampleSelection = newDataset?.samples?.firstOrNull()?.isSelected?.toList()
+
+            // Use any existing naming scheme to initialize new samples
+            val globalNames = existingRefNames ?: existingSampleNames
+            val globalSelection = existingRefSelection ?: existingSampleSelection
+
             if (pendingReferences.isNotEmpty()) {
                 try {
                     val refUris = pendingReferences.toList().map { it.uri }
-                    val dataset = ingestImages(refUris, context, log = false)
+                    val dataset = ingestImages(refUris, context, log = false, selectionStrategy = selectionStrategy)
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Reference"
                         sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
+                        globalNames?.let { sample.names.clear(); sample.names.addAll(it) }
+                        globalSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
-                    referenceDataset = dataset
+                    if (referenceDataset == null) {
+                        referenceDataset = dataset
+                    } else {
+                        referenceDataset?.samples?.addAll(dataset.samples)
+                    }
+                    pendingReferences.clear()
                 } catch (e: Exception) {
                     AppErrorLogger.logError(context, "Ingest", "Failed ingesting references", e)
                 }
@@ -368,12 +383,19 @@ class DatasetModel : ViewModel() {
             if (pendingSamples.isNotEmpty()) {
                 try {
                     val sampleUris = pendingSamples.toList().map { it.uri }
-                    val dataset = ingestImages(sampleUris, context, log = false)
+                    val dataset = ingestImages(sampleUris, context, log = false, selectionStrategy = selectionStrategy)
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Sample"
                         sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
+                        globalNames?.let { sample.names.clear(); sample.names.addAll(it) }
+                        globalSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
-                    newDataset = dataset
+                    if (newDataset == null) {
+                        newDataset = dataset
+                    } else {
+                        newDataset?.samples?.addAll(dataset.samples)
+                    }
+                    pendingSamples.clear()
                 } catch (e: Exception) {
                     AppErrorLogger.logError(context, "Ingest", "Failed ingesting samples", e)
                 }

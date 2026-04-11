@@ -54,7 +54,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Distance metric selector
-        Text("Step 2: Choose distance metric")
+        Text("Choose distance metric")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             distanceOptions.forEach { option ->
                 FilterChip(
@@ -93,29 +93,29 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         }
 
         // Comparison mode selector
-        Text("Choose comparison mode")
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf("Per Color", "Whole Card").forEach { option ->
-                FilterChip(
-                    selected = viewModel.comparisonMode == option,
-                    onClick = { viewModel.comparisonMode = option },
-                    label = { Text(option) }
-                )
-            }
-        }
-        if (viewModel.comparisonMode == "Whole Card") {
-            Text(
-                text = "Whole card compares the entire sample as one unit against each reference.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-        } else {
-            Text(
-                text = "Per color compares each dye well individually against the reference.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-        }
+//        Text("Choose comparison mode")
+//        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+//            listOf("Per Color", "Whole Card").forEach { option ->
+//                FilterChip(
+//                    selected = viewModel.comparisonMode == option,
+//                    onClick = { viewModel.comparisonMode = option },
+//                    label = { Text(option) }
+//                )
+//            }
+//        }
+//        if (viewModel.comparisonMode == "Whole Card") {
+//            Text(
+//                text = "Whole card compares the entire sample as one unit against each reference.",
+//                style = MaterialTheme.typography.bodySmall,
+//                color = Color.Gray
+//            )
+//        } else {
+//            Text(
+//                text = "Per color compares each dye well individually against the reference.",
+//                style = MaterialTheme.typography.bodySmall,
+//                color = Color.Gray
+//            )
+//        }
 
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 

@@ -92,15 +92,17 @@ class Sample(
      * @param mode Normalize in RGB or grayscale.
      * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
      */
-    fun getNormalizedData(strategy: String, mode: String): List<DoubleArray> {
+    fun getNormalizedData(strategy: String, mode: String, selection: String): List<DoubleArray> {
         val greySquares = squares.map{ greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }
 
         val rawData = if (mode == "RGB") {
             // Append calibration square data to rgb data before normalizing
-            (rgb + squares).map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
+            val data = if (selection == "Include Squares") rgb + squares else rgb
+            data.map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
         } else {
             // Create greyscale values from calibration squares and append
-            (greyscale + greySquares).map { doubleArrayOf(it) }
+            val data = if (selection == "Include Squares") greyscale + greySquares else greyscale
+            data.map { doubleArrayOf(it) }
         }
 
         if (strategy == "None" || rawData.isEmpty()) return rawData
@@ -132,7 +134,9 @@ class Sample(
         }
 
         // Remove calibration square data from final color data
-        normalized = normalized.subList(0, normalized.size - squares.size)
+        if (selection == "Include Squares") {
+            normalized = normalized.subList(0, normalized.size - squares.size)
+        }
 
         return normalized
     }
@@ -342,6 +346,7 @@ class DatasetModel : ViewModel() {
     var distanceMetric by mutableStateOf("Euclidean")
     var colorMode by mutableStateOf("RGB")
     var normalizationStrategy by mutableStateOf("None")
+    var normalizationSelection by mutableStateOf("Include Squares")
     var comparisonMode by mutableStateOf("Whole Card")
     var selectionStrategy by mutableStateOf("Mean")
 
@@ -440,7 +445,7 @@ class DatasetModel : ViewModel() {
     }
 
     private fun flattenSample(sample: Sample, normalizationStrategy: String): DoubleArray {
-        val data = sample.getNormalizedData(normalizationStrategy, colorMode)
+        val data = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
         return sample.isSelected.indices
             .filter { sample.isSelected[it] }
             .sortedBy { sample.names[it] }
@@ -492,8 +497,8 @@ class DatasetModel : ViewModel() {
                     val referenceColors = mutableListOf<Scalar>()
                     val wellDistances = mutableListOf<Double>()
 
-                    val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode)
-                    val normalizedRef = bestRef.getNormalizedData(normalizationStrategy, colorMode)
+                    val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                    val normalizedRef = bestRef.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
 
                     sample.isSelected.forEachIndexed { dotIdx, isSelected ->
                         if (isSelected) {

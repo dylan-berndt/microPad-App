@@ -1,23 +1,26 @@
 package com.example.micropad.data
 
-import android.content.Context
+import java.util.Collections
 import android.graphics.Bitmap
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
-import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
+import android.util.Log
+import com.example.micropad.data.ingestImages
+import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -278,7 +281,7 @@ class SampleDataset(val samples: MutableList<Sample>) {
                     }.toMutableList()
 
                     val dots = colors.subList(numCalPoints, colors.size).map { Pair(MatOfPoint(), it) }.toMutableList()
-                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints))
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints), isImage = false)
                     sample.names.clear(); sample.names.addAll(dyeNames)
                     sample.referenceName = refName
                     samples.add(sample)
@@ -339,7 +342,7 @@ class DatasetModel : ViewModel() {
     var distanceMetric by mutableStateOf("Euclidean")
     var colorMode by mutableStateOf("RGB")
     var normalizationStrategy by mutableStateOf("None")
-    var comparisonMode by mutableStateOf("Per Color")
+    var comparisonMode by mutableStateOf("Whole Card")
     var selectionStrategy by mutableStateOf("Mean")
 
     /**
@@ -355,10 +358,6 @@ class DatasetModel : ViewModel() {
             val existingSampleNames = newDataset?.samples?.firstOrNull()?.names?.toList()
             val existingSampleSelection = newDataset?.samples?.firstOrNull()?.isSelected?.toList()
 
-            // Use any existing naming scheme to initialize new samples
-            val globalNames = existingRefNames ?: existingSampleNames
-            val globalSelection = existingRefSelection ?: existingSampleSelection
-
             if (pendingReferences.isNotEmpty()) {
                 try {
                     val refUris = pendingReferences.toList().map { it.uri }
@@ -366,8 +365,8 @@ class DatasetModel : ViewModel() {
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Reference"
                         sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
-                        globalNames?.let { sample.names.clear(); sample.names.addAll(it) }
-                        globalSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
+                        (existingRefNames ?: existingSampleNames)?.let { sample.names.clear(); sample.names.addAll(it) }
+                        (existingRefSelection ?: existingSampleSelection)?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
                     if (referenceDataset == null) {
                         referenceDataset = dataset
@@ -387,8 +386,8 @@ class DatasetModel : ViewModel() {
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Sample"
                         sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
-                        globalNames?.let { sample.names.clear(); sample.names.addAll(it) }
-                        globalSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
+                        existingSampleNames?.let { sample.names.clear(); sample.names.addAll(it) }
+                        existingSampleSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
                     if (newDataset == null) {
                         newDataset = dataset
@@ -575,7 +574,11 @@ class DatasetModel : ViewModel() {
         }
 
         val firstSample = table.samples.firstOrNull() ?: return ""
-        val selectedIndices = firstSample.isSelected.indices.filter { firstSample.isSelected[it] }
+        // Sort selected indices for consistent header and row column ordering
+        val selectedIndices = firstSample.isSelected.indices
+            .filter { firstSample.isSelected[it] }
+            .sortedBy { firstSample.names[it] }
+
         val dyeHeaders = selectedIndices.flatMap { i ->
             val name = firstSample.names[i]
             listOf("${name}_r", "${name}_g", "${name}_b")
@@ -590,15 +593,9 @@ class DatasetModel : ViewModel() {
                 + calHeaders + dyeHeaders).joinToString(",")
 
         val rows = table.samples.mapIndexed { sampleIdx, sample ->
-            val selectedIndices = firstSample.isSelected.indices
-                .filter { firstSample.isSelected[it] }
-                .sortedBy { firstSample.names[it] }
-
             val result = sample.classificationResults.firstOrNull()
             val totalDist = result?.totalDistance ?: ""
-            val refName = sample.referenceName.ifBlank {
-                result?.closestReferenceName ?: ""
-            }
+            val refName = result?.closestReferenceName ?: sample.referenceName
             val meta = listOf(sampleIdx.toString(), refName, distanceMetric, totalDist.toString())
 
             val cal = sample.squares.take(4).flatMap {

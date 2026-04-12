@@ -91,20 +91,25 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
         }
 
         val initialName = viewModel.importedFileName
-        val csvData = viewModel.toCsvString(includeHeader = true)
-        val existingUri = viewModel.importedFileUri
         val context = LocalContext.current
+        var export by remember { mutableStateOf("references") }
 
         val refLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.CreateDocument("text/csv")
         ) { uri ->
-            if (uri != null) writeToCsv(csvData, "references", uri, context)
-        }
+            var csvData = ""
+            if (export == "references") {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "references")
+            }
+            else if (export == "samples") {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "sample")
+            }
+            else {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "references")
+                csvData += "\n" + viewModel.toCsvString(includeHeader = false, datasetChoice = "sample")
+            }
 
-        val sampleLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.CreateDocument("text/csv")
-        ) { uri ->
-            if (uri != null) writeToCsv(csvData, "samples", uri, context)
+            if (uri != null) writeToCsv(csvData, "references", uri, context)
         }
 
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -127,36 +132,58 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
 
-            Row(
+            Text("Export", modifier =
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .align(Alignment.CenterHorizontally)
+            )
+            HorizontalDivider()
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Button(
-                    onClick = {
-                        if (existingUri != null) {
-                            writeToCsv(csvData, "references", existingUri, context)
-                        } else {
-                            refLauncher.launch(initialName)
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                    .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save as references")
+                    Button(
+                        onClick = {
+                            export = "samples"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Categorized Samples")
+                    }
+
+                    Button(
+                        onClick = {
+                            export = "references"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Reference Data")
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        if (existingUri != null) {
-                            writeToCsv(csvData, "samples", existingUri, context)
-                        } else {
-                            sampleLauncher.launch(initialName)
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save as samples")
+                    Button(
+                        onClick = {
+                            export = "combined"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Combined Dataset")
+                    }
                 }
             }
         }

@@ -266,27 +266,46 @@ class SampleDataset(val samples: MutableList<Sample>) {
             val lines = input.bufferedReader().readLines()
             if (lines.isEmpty()) return
 
-            val header = lines[0].trimStart('\uFEFF').split(",")
-            val metadataColumns = 4
-            val calibrationColumns = 12
-            val colorColumns = header.drop(metadataColumns + calibrationColumns)
-            val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
-            val numberOfDots = dyeNames.size
+            val firstLine = lines[0].trimStart('\uFEFF')
+            val header = firstLine.split(",")
+            
+            val dyeNames = header.filter { it.endsWith("_r") && !it.startsWith("cal") }
+                                .map { it.removeSuffix("_r") }
 
             lines.drop(1).forEach { line ->
                 if (line.isBlank()) return@forEach
                 try {
                     val tokens = line.split(",")
-                    if (tokens.size < metadataColumns + calibrationColumns + numberOfDots * 3) return@forEach
-                    val refName = tokens[1].trim()
-                    val numCalPoints = calibrationColumns / 3
-                    val colors = tokens.drop(metadataColumns).chunked(3).take(numCalPoints + numberOfDots).map { chunk ->
-                        Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
-                    }.toMutableList()
+                    val rowMap = header.indices.associate { i -> header[i] to tokens.getOrNull(i) }
+                    
+                    val refName = rowMap["reference_name"]?.trim() ?: ""
+                    
+                    val squares = mutableListOf<Scalar>()
+                    for (i in 0..3) {
+                        val r = rowMap["cal${i}_r"]?.toDoubleOrNull() ?: 0.0
+                        val g = rowMap["cal${i}_g"]?.toDoubleOrNull() ?: 0.0
+                        val b = rowMap["cal${i}_b"]?.toDoubleOrNull() ?: 0.0
+                        squares.add(Scalar(r, g, b))
+                    }
+                    
+                    val dots = mutableListOf<Pair<MatOfPoint, Scalar>>()
+                    val names = mutableListOf<String>()
+                    
+                    for (name in dyeNames) {
+                        val rStr = rowMap["${name}_r"]
+                        val gStr = rowMap["${name}_g"]
+                        val bStr = rowMap["${name}_b"]
+                        
+                        if (!rStr.isNullOrBlank() && !gStr.isNullOrBlank() && !bStr.isNullOrBlank()) {
+                            dots.add(Pair(MatOfPoint(), Scalar(rStr.toDoubleOrNull() ?: 0.0, 
+                                                               gStr.toDoubleOrNull() ?: 0.0, 
+                                                               bStr.toDoubleOrNull() ?: 0.0)))
+                            names.add(name)
+                        }
+                    }
 
-                    val dots = colors.subList(numCalPoints, colors.size).map { Pair(MatOfPoint(), it) }.toMutableList()
-                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints), isImage = false)
-                    sample.names.clear(); sample.names.addAll(dyeNames)
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares = squares, isImage = false)
+                    sample.names.clear(); sample.names.addAll(names)
                     sample.referenceName = refName
                     samples.add(sample)
                     Log.d("CSV", "Sample added: ${sample.rgb.size} dots identified")
@@ -444,15 +463,6 @@ class DatasetModel : ViewModel() {
         referenceDataset = dataset
     }
 
-    private fun flattenSample(sample: Sample, normalizationStrategy: String): DoubleArray {
-        val data = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
-        return sample.isSelected.indices
-            .filter { sample.isSelected[it] }
-            .sortedBy { sample.names[it] }
-            .flatMap { data[it].toList() }
-            .toDoubleArray()
-    }
-
     fun runWholeCardClassification() {
         val ref = referenceDataset ?: return
         val new = newDataset ?: return
@@ -460,34 +470,45 @@ class DatasetModel : ViewModel() {
         for (sample in new.samples) {
             try {
                 sample.classificationResults.clear()
-                val sampleVec = flattenSample(sample, normalizationStrategy)
+                val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                val selectedSampleIndices = sample.isSelected.indices.filter { sample.isSelected[it] }
 
                 var bestDistance = Double.MAX_VALUE
                 var bestRef: Sample? = null
 
                 for (refSample in ref.samples) {
-                    val refVec = flattenSample(refSample, normalizationStrategy)
-                    if (refVec.size != sampleVec.size) continue
+                    val normalizedRef = refSample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                    
+                    var sum = 0.0
+                    var matchCount = 0
 
-                    val distance = when (distanceMetric) {
-                        "Euclidean" -> {
-                            var sum = 0.0
-                            for (i in sampleVec.indices) {
-                                val diff = sampleVec[i] - refVec[i]
-                                sum += diff * diff
+                    for (sIdx in selectedSampleIndices) {
+                        val name = sample.names[sIdx]
+                        val rIdx = refSample.names.indexOf(name)
+                        // Use exact name match to include wells in comparison
+                        if (rIdx != -1 && refSample.isSelected.getOrElse(rIdx) { false }) {
+                            val sampleFeat = normalizedSample[sIdx]
+                            val refFeat = normalizedRef[rIdx]
+                            
+                            var wellSum = 0.0
+                            for (i in sampleFeat.indices) {
+                                val diff = sampleFeat[i] - refFeat[i]
+                                wellSum += if (distanceMetric == "Euclidean") diff * diff else abs(diff)
                             }
-                            sqrt(sum)
+                            sum += wellSum
+                            matchCount++
                         }
-                        "Manhattan" -> {
-                            var sum = 0.0
-                            for (i in sampleVec.indices) { sum += abs(sampleVec[i] - refVec[i]) }
-                            sum
-                        }
-                        else -> Double.MAX_VALUE
                     }
-                    if (distance < bestDistance) {
-                        bestDistance = distance
-                        bestRef = refSample
+
+                    if (matchCount > 0) {
+                        val distance = if (distanceMetric == "Euclidean") sqrt(sum) else sum
+                        // Normalize distance by match count to make samples with different well counts comparable
+                        val comparableDistance = distance / matchCount
+
+                        if (comparableDistance < bestDistance) {
+                            bestDistance = comparableDistance
+                            bestRef = refSample
+                        }
                     }
                 }
 
@@ -497,39 +518,26 @@ class DatasetModel : ViewModel() {
                     val referenceColors = mutableListOf<Scalar>()
                     val wellDistances = mutableListOf<Double>()
 
-                    val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
                     val normalizedRef = bestRef.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
 
-                    sample.isSelected.forEachIndexed { dotIdx, isSelected ->
-                        if (isSelected) {
-                            val dotFeatures = normalizedSample[dotIdx]
-                            // Match by name if possible, or index fallback
-                            val refDotIdx = bestRef.names.indexOfFirst { it == sample.names[dotIdx] }
-                            if (refDotIdx != -1 && refDotIdx < normalizedRef.size) {
-                                val refFeatures = normalizedRef[refDotIdx]
-                                val wellDistance = when (distanceMetric) {
-                                    "Euclidean" -> {
-                                        var sum = 0.0
-                                        for (i in dotFeatures.indices) {
-                                            val diff = dotFeatures[i] - refFeatures[i]
-                                            sum += diff * diff
-                                        }
-                                        sqrt(sum)
-                                    }
-                                    "Manhattan" -> {
-                                        var sum = 0.0
-                                        for (i in dotFeatures.indices) {
-                                            sum += abs(dotFeatures[i] - refFeatures[i])
-                                        }
-                                        sum
-                                    }
-                                    else -> -1.0
-                                }
-                                wellNames.add(sample.names[dotIdx])
-                                sampleColors.add(sample.rgb[dotIdx])
-                                referenceColors.add(bestRef.rgb[refDotIdx])
-                                wellDistances.add(wellDistance)
+                    for (sIdx in selectedSampleIndices) {
+                        val name = sample.names[sIdx]
+                        val rIdx = bestRef.names.indexOf(name)
+                        if (rIdx != -1 && bestRef.isSelected.getOrElse(rIdx) { false }) {
+                            val sampleFeat = normalizedSample[sIdx]
+                            val refFeat = normalizedRef[rIdx]
+                            
+                            var wellSum = 0.0
+                            for (i in sampleFeat.indices) {
+                                val diff = sampleFeat[i] - refFeat[i]
+                                wellSum += if (distanceMetric == "Euclidean") diff * diff else abs(diff)
                             }
+                            val wellDistance = if (distanceMetric == "Euclidean") sqrt(wellSum) else wellSum
+                            
+                            wellNames.add(name)
+                            sampleColors.add(sample.rgb[sIdx])
+                            referenceColors.add(bestRef.rgb[rIdx])
+                            wellDistances.add(wellDistance)
                         }
                     }
 
@@ -570,22 +578,15 @@ class DatasetModel : ViewModel() {
     }
 
     fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
-        var table: SampleDataset? = null
-        if (datasetChoice == "sample") {
-            table = newDataset ?: return ""
-        }
-        else {
-            table = referenceDataset ?: return ""
-        }
+        val table = if (datasetChoice == "sample") newDataset else referenceDataset
+        if (table == null || table.samples.isEmpty()) return ""
 
-        val firstSample = table.samples.firstOrNull() ?: return ""
-        // Sort selected indices for consistent header and row column ordering
-        val selectedIndices = firstSample.isSelected.indices
-            .filter { firstSample.isSelected[it] }
-            .sortedBy { firstSample.names[it] }
+        // Calculate the union of all well names across all samples in the dataset, regardless of selection
+        val allWellNames = table.samples.flatMap { sample ->
+            sample.names.filter { it.isNotBlank() }
+        }.distinct().sorted()
 
-        val dyeHeaders = selectedIndices.flatMap { i ->
-            val name = firstSample.names[i]
+        val dyeHeaders = allWellNames.flatMap { name ->
             listOf("${name}_r", "${name}_g", "${name}_b")
         }
         val calHeaders = listOf(
@@ -607,16 +608,21 @@ class DatasetModel : ViewModel() {
                 listOf(it.`val`[0], it.`val`[1], it.`val`[2])
             }.map { it.toString() }
 
-            val rgbParts = selectedIndices.flatMap { index ->
-                val scalar = sample.rgb[index]
-                listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
-            }.map { it.toString() }
+            val rgbParts = allWellNames.flatMap { name ->
+                val index = sample.names.indexOf(name)
+                // Fill with RGB values if well exists, even if not selected
+                if (index != -1) {
+                    val scalar = sample.rgb[index]
+                    listOf(scalar.`val`[0].toString(), scalar.`val`[1].toString(), scalar.`val`[2].toString())
+                } else {
+                    listOf("", "", "")
+                }
+            }
 
             (meta + cal + rgbParts).joinToString(",")
         }
 
         val body = rows.joinToString("\n")
-
         return if (includeHeader) "$header\n$body" else body
     }
 }

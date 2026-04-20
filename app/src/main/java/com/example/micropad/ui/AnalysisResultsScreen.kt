@@ -3,6 +3,7 @@ package com.example.micropad.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,10 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +33,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,19 +48,16 @@ import androidx.navigation.NavController
 import com.example.micropad.data.ClassificationResult
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.writeToCsv
+import org.opencv.core.Scalar
 
 /**
  * Display the results of a classification run.
  *
  * The screen shows a scrollable list of sample result cards, one per sample,
  * and a persistent pair of export buttons fixed at the bottom of the screen.
- * The export buttons are placed outside the LazyColumn so that their activity
- * result launchers are always registered and never fall out of composition.
  *
  * @param viewModel The view model for the app.
  * @param navController The navigation controller for the app.
- * @receiver The Composable calling this function.
- * @return Unit
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,23 +90,26 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
             return@Scaffold
         }
 
-        // Hoist CSV data and launchers to the top level of the Scaffold content so that
-        // rememberLauncherForActivityResult is always registered regardless of scroll position.
-        val csvData = viewModel.toCsvString(includeHeader = false)
         val initialName = viewModel.importedFileName
-        val existingUri = viewModel.importedFileUri
         val context = LocalContext.current
+        var export by remember { mutableStateOf("references") }
 
         val refLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.CreateDocument("text/csv")
         ) { uri ->
-            if (uri != null) writeToCsv(csvData, "references", uri, context)
-        }
+            var csvData = ""
+            if (export == "references") {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "references")
+            }
+            else if (export == "samples") {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "sample")
+            }
+            else {
+                csvData = viewModel.toCsvString(includeHeader = true, datasetChoice = "references")
+                csvData += "\n" + viewModel.toCsvString(includeHeader = false, datasetChoice = "sample")
+            }
 
-        val sampleLauncher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.CreateDocument("text/csv")
-        ) { uri ->
-            if (uri != null) writeToCsv(csvData, "samples", uri, context)
+            if (uri != null) writeToCsv(csvData, "references", uri, context)
         }
 
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -115,7 +124,7 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
                         SampleResultCard(
                             viewModel = viewModel,
                             sampleIndex = sampleIndex,
-                            results = sample.classificationResults.toList(),
+                            result = sample.classificationResults.firstOrNull(),
                             distanceMetric = viewModel.distanceMetric
                         )
                     }
@@ -123,38 +132,58 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
                 item { Spacer(modifier = Modifier.height(16.dp)) }
             }
 
-            // Export buttons are fixed at the bottom of the screen outside the LazyColumn
-            // so their launchers are always active and receive activity results correctly.
-            Row(
+            Text("Export", modifier =
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .align(Alignment.CenterHorizontally)
+            )
+            HorizontalDivider()
+
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Button(
-                    onClick = {
-                        if (existingUri != null) {
-                            writeToCsv(csvData, "references", existingUri, context)
-                        } else {
-                            refLauncher.launch(initialName)
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                    .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save as references")
+                    Button(
+                        onClick = {
+                            export = "samples"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Categorized Samples")
+                    }
+
+                    Button(
+                        onClick = {
+                            export = "references"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Reference Data")
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        if (existingUri != null) {
-                            writeToCsv(csvData, "samples", existingUri, context)
-                        } else {
-                            sampleLauncher.launch(initialName)
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Save as samples")
+                    Button(
+                        onClick = {
+                            export = "combined"
+                            refLauncher.launch(initialName)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Combined Dataset")
+                    }
                 }
             }
         }
@@ -162,26 +191,18 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
 }
 
 /**
- * Display the results of a single sample.
- *
- * Branches on the current comparison mode from the view model. In Whole Card mode,
- * shows a single row with the closest reference and combined distance score. In Per
- * Color mode, shows a ranked breakdown of individual well results.
- *
- * @param viewModel The view model for the app.
- * @param sampleIndex The index of the sample.
- * @param results The list of classification results for the sample.
- * @param distanceMetric The distance metric used for the classification.
- * @receiver The Composable calling this function.
- * @return Unit
+ * Display the results of a single sample classification.
  */
 @Composable
 fun SampleResultCard(
     viewModel: DatasetModel,
     sampleIndex: Int,
-    results: List<ClassificationResult>,
+    result: ClassificationResult?,
     distanceMetric: String
 ) {
+    val sample = viewModel.newDataset?.samples?.getOrNull(sampleIndex) ?: return
+    var expanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
@@ -189,109 +210,105 @@ fun SampleResultCard(
         Column(modifier = Modifier.padding(16.dp)) {
 
             Text(
-                text = "Sample ${sampleIndex + 1}",
+                text = sample.referenceName,
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
-            if (results.isEmpty()) {
+            if (result == null) {
                 Text(
-                    text = "No results. Ensure a reference dataset was loaded before classifying.",
+                    text = "No results available for this sample.",
                     color = Color.Gray,
                     fontSize = 14.sp
                 )
                 return@Column
             }
 
-            // The top compound is the label that appears most frequently across all wells
-            val topLabel = if (viewModel.comparisonMode == "Whole Card") {
-                results.firstOrNull()?.assignedLabel ?: "Unknown"
-            } else {
-                results
-                    .filter { it.assignedLabel.isNotBlank() }
-                    .groupingBy { it.assignedLabel }
-                    .eachCount()
-                    .maxByOrNull { it.value }
-                    ?.key ?: "Unknown"
-            }
-
             Text("Detected Compound:", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             Text(
-                text = topLabel,
+                text = result.closestReferenceName,
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            if (viewModel.comparisonMode == "Whole Card") {
-                // Whole card mode: show the single closest reference and its combined score
-                val best = results.firstOrNull()
-                if (best != null) {
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Whole-card comparison — closest reference:",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    val scoreText = if (best.distanceScore < 0) "N/A"
-                    else "%.2f".format(best.distanceScore)
-                    val maxExpected = 441.0
-                    val fraction = if (best.distanceScore < 0) 1f
-                    else (best.distanceScore / maxExpected).toFloat().coerceIn(0f, 1f)
-                    val scoreColor = lerpColor(Color(0xFF4CAF50), Color(0xFFF44336), fraction)
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(8.dp))
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                shape = MaterialTheme.shapes.small
-                            )
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = best.closestReferenceName.ifBlank { "Unknown" },
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp
-                            )
-                            Text(
-                                text = "$distanceMetric distance (all wells combined)",
-                                fontSize = 12.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Score", fontSize = 11.sp, color = Color.Gray)
-                            Text(
-                                text = scoreText,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = scoreColor
-                            )
-                        }
-                    }
+            val totalDistText = "%.2f".format(result.totalDistance)
+            // Estimate max distance for coloring (RGB max diff is 441 per well)
+            val maxExpected = 441.0 * result.wellNames.size
+            val fraction = (result.totalDistance / maxExpected).toFloat().coerceIn(0f, 1f)
+            val distanceColor = lerpColor(Color(0xFF4CAF50), Color(0xFFF44336), fraction)
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        shape = MaterialTheme.shapes.small
+                    )
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Total Card Distance",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Metric: $distanceMetric",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
                 }
-            } else {
-                // Per color mode: show a ranked breakdown of individual well results
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Well breakdown — ranked by $distanceMetric distance (lower = closer match):",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    text = totalDistText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = distanceColor
                 )
-                val ranked = results.sortedBy { it.distanceScore }
-                ranked.forEachIndexed { rank, result ->
-                    WellResultRow(rank = rank + 1, result = result)
-                    Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Expandable header for well details
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Dye Well Distances",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse" else "Expand"
+                )
+            }
+
+            if (expanded) {
+                Column(
+                    modifier = Modifier.padding(top = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    result.wellNames.forEachIndexed { i, name ->
+                        WellResultRow(
+                            name = name,
+                            sampleColor = result.sampleColors[i],
+                            referenceColor = result.referenceColors[i],
+                            distance = result.wellDistances[i]
+                        )
+                    }
                 }
             }
         }
@@ -299,90 +316,81 @@ fun SampleResultCard(
 }
 
 /**
- * Display the results of a single well.
- *
- * Shows the well index, assigned label, closest reference name, and distance
- * score. The score is colour coded from green (close match) to red (far match)
- * using a linear interpolation across the expected maximum Euclidean distance.
- *
- * @param rank The rank of the well result, sorted by ascending distance score.
- * @param result The classification result for the well.
- * @receiver The Composable calling this function.
- * @return Unit
+ * Display the results of a single well, comparing sample and reference colors.
  */
 @Composable
-fun WellResultRow(rank: Int, result: ClassificationResult) {
-    val scoreText = if (result.distanceScore < 0) "N/A"
-    else "%.2f".format(result.distanceScore)
-
-    // Normalise score for colour: green = close match, red = far match
+fun WellResultRow(
+    name: String,
+    sampleColor: Scalar,
+    referenceColor: Scalar,
+    distance: Double
+) {
+    val distText = "%.2f".format(distance)
     val maxExpected = 441.0
-    val fraction = if (result.distanceScore < 0) 1f
-    else (result.distanceScore / maxExpected).toFloat().coerceIn(0f, 1f)
-    val scoreColor = lerpColor(Color(0xFF4CAF50), Color(0xFFF44336), fraction)
+    val fraction = (distance / maxExpected).toFloat().coerceIn(0f, 1f)
+    val distanceColor = lerpColor(Color(0xFF4CAF50), Color(0xFFF44336), fraction)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                MaterialTheme.colorScheme.surfaceVariant,
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = MaterialTheme.shapes.small
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Rank badge
-        Text(
-            text = "#$rank",
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = Color.Gray,
-            modifier = Modifier.width(28.dp)
-        )
-
-        Column(modifier = Modifier.weight(1f).padding(start = 4.dp)) {
-            Text(
-                text = if (result.wellIndex < 0) "Whole Sample" else "Well ${result.wellIndex + 1}",
-                fontSize = 12.sp,
-                color = Color.Gray
-            )
-            Text(
-                text = result.assignedLabel.ifBlank { "—" },
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-            if (result.closestReferenceName.isNotBlank()) {
-                Text(
-                    text = "Ref: ${result.closestReferenceName}",
-                    fontSize = 11.sp,
-                    color = Color.Gray
-                )
-            }
+        Column(modifier = Modifier.weight(1.2f)) {
+            Text(text = name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(text = "Dye Well", fontSize = 11.sp, color = Color.Gray)
         }
 
-        Column(horizontalAlignment = Alignment.End) {
-            Text("Score", fontSize = 11.sp, color = Color.Gray)
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ColorSwatch(color = sampleColor, label = "S")
+            Spacer(modifier = Modifier.width(8.dp))
+            ColorSwatch(color = referenceColor, label = "R")
+        }
+
+        Column(
+            modifier = Modifier.weight(0.8f),
+            horizontalAlignment = Alignment.End
+        ) {
+            Text(text = "Distance", fontSize = 11.sp, color = Color.Gray)
             Text(
-                text = scoreText,
+                text = distText,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                color = scoreColor
+                fontSize = 14.sp,
+                color = distanceColor
             )
         }
     }
 }
 
+@Composable
+fun ColorSwatch(color: Scalar, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .background(
+                    Color(
+                        (color.`val`[0] / 255.0).toFloat().coerceIn(0f, 1f),
+                        (color.`val`[1] / 255.0).toFloat().coerceIn(0f, 1f),
+                        (color.`val`[2] / 255.0).toFloat().coerceIn(0f, 1f)
+                    ),
+                    shape = CircleShape
+                )
+        )
+        Text(text = label, fontSize = 9.sp, color = Color.Gray)
+    }
+}
+
 /**
  * Linearly interpolate between two colors.
- *
- * Used to produce a colour gradient between green and red for distance scores,
- * where a fraction of 0.0 returns the start colour and 1.0 returns the end colour.
- *
- * @param start The start color.
- * @param end The end color.
- * @param fraction The fraction between the start and end colors, clamped to 0..1.
- * @return The interpolated color.
  */
 fun lerpColor(start: Color, end: Color, fraction: Float): Color {
     return Color(

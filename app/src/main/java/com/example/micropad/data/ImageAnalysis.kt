@@ -503,7 +503,6 @@ fun extractContour(image: Mat, contour: MatOfPoint): Mat {
     return extractedData
 }
 
-
 /**
  * Extract the dye color from an image.
  *
@@ -520,9 +519,17 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
     Core.inRange(hsv, Scalar(0.0, 0.0, 200.0), Scalar(180.0, 40.0, 255.0), whiteMask)
     Core.subtract(colorMask, whiteMask, colorMask)
 
+    val channels = ArrayList<Mat>()
+    Core.split(extractedMat, channels)
+    val alpha = channels[3]
+
+    // Create mask: alpha > 0
+    val alphaMask = Mat()
+    Imgproc.threshold(alpha, alphaMask, 0.0, 255.0, Imgproc.THRESH_BINARY)
+
     if (Core.countNonZero(colorMask) == 0) {
         hsv.release(); colorMask.release(); whiteMask.release()
-        return Scalar(255.0, 255.0, 255.0, 255.0)
+        return Core.mean(extractedMat, alphaMask)
     }
 
     val result = if (selectionStrategy == "Mean") {
@@ -551,7 +558,7 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
  * @return MutableList<Pair<MatOfPoint, Scalar>>: List of dots.
  */
 fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
-             log: Boolean, selectionStrategy: String, shrink: Float = 0.4f):
+             log: Boolean, selectionStrategy: String, shrink: Float = 0.35f):
         MutableList<Pair<MatOfPoint, Scalar>> {
     Log.d("Pipeline", "--- Stage: Well (Dot) Identification ---")
     val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
@@ -589,6 +596,15 @@ fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
     val top = sizeSorted.take(4)
     val medianArea = top.map { it.second }.sorted()[top.size / 2]
     val finalDots = sizeSorted.filter { abs(it.second - medianArea) / medianArea < 0.2 }.map { it.first }
+
+    if (log) {
+        var i = 0
+        for (dot in finalDots) {
+            saveMat(extractContour(image, dot.first), "dot$i.png", context)
+            Log.d("Pipeline", dot.second.toString())
+            i++
+        }
+    }
 
     Log.d("Pipeline", "Data Movement: Mapping wells to 2D grid structure")
     val indexed = assignGridIndices(finalDots)
@@ -632,9 +648,9 @@ fun preprocessImage(
         }
 
         var balanced = image
-        if (normalizationStrategy == "Regression" && colors.size == 4) {
-            balanced = rebalanceImage(image, colors, expectedColors)
-        }
+//        if (normalizationStrategy == "Regression" && colors.size == 4) {
+//            balanced = rebalanceImage(image, colors, expectedColors)
+//        }
 
         val orderingImage = drawOrdering(image, dots)
         Sample(image, balanced, orderingImage, dots, squares=colors)

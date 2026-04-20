@@ -35,7 +35,8 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
 
     val distanceOptions = listOf("Euclidean", "Manhattan")
     val colorModeOptions = listOf("RGB", "Grayscale")
-    val normalizationOptions = listOf("MinMax", "Z-Score", "Softmax", "None")
+    val normalizationOptions = listOf("MinMax", "Z-Score", "None")
+    val selectionOptions = listOf("Include Squares", "Dots Only")
 
     Column(
         modifier = Modifier
@@ -53,7 +54,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
 
         // Distance metric selector
-        Text("Step 2: Choose distance metric")
+        Text("Choose distance metric")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             distanceOptions.forEach { option ->
                 FilterChip(
@@ -76,7 +77,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
             }
         }
 
-// Normalization selector
+        // Normalization selector
         Text("Choose normalization method")
         androidx.compose.foundation.layout.FlowRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -91,29 +92,16 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
             }
         }
 
-        // Comparison mode selector
-        Text("Choose comparison mode")
+        // Normalization data selector
+        Text("Choose normalization data")
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf("Per Color", "Whole Card").forEach { option ->
+            selectionOptions.forEach { option ->
                 FilterChip(
-                    selected = viewModel.comparisonMode == option,
-                    onClick = { viewModel.comparisonMode = option },
+                    selected = viewModel.normalizationSelection == option,
+                    onClick = { viewModel.normalizationSelection = option },
                     label = { Text(option) }
                 )
             }
-        }
-        if (viewModel.comparisonMode == "Whole Card") {
-            Text(
-                text = "Whole card compares the entire sample as one unit against each reference.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-        } else {
-            Text(
-                text = "Per color compares each dye well individually against the reference.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
         }
 
         HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)

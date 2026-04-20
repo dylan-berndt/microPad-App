@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -60,14 +61,13 @@ dependencies {
     implementation(libs.androidx.compose.foundation.layout)
 
     // Coil & OpenCV
-    val activity_version = ""
-    implementation("androidx.activity:activity:$activity_version")
-    implementation("androidx.activity:activity-ktx:$activity_version")
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.activity.ktx)
 
-    implementation("io.coil-kt.coil3:coil-compose:3.3.0")
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.3.0")
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
-    implementation("org.opencv:opencv:4.9.0")
+    implementation(libs.opencv)
 
     // Camera
     implementation(libs.androidx.camera.core)
@@ -76,6 +76,13 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.navigation.compose)
+
+    // Cloud
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.google.firebase.storage)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.documentfile)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     // Testing
     testImplementation(libs.junit)

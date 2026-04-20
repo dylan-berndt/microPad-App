@@ -1,26 +1,24 @@
 package com.example.micropad.data
 
-import java.util.Collections
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
-import android.util.Log
-import com.example.micropad.data.ingestImages
-import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -84,6 +82,20 @@ class Sample(
 
     var ordering by mutableStateOf(initialOrdering)
         private set
+
+    /**
+     * Appends a manually selected ROI to this sample.
+     */
+    fun addManualDot(center: Point, radius: Double, selectionStrategy: String) {
+        val source = balanced ?: imageData ?: return
+        val (contour, color) = extractManualDotAtPoint(source, center, radius, selectionStrategy)
+        dots.add(Pair(contour, color))
+        rgb.add(color)
+        greyscale.add(com.example.micropad.data.greyscale(color.`val`[0], color.`val`[1], color.`val`[2]))
+        names.add("")
+        isSelected.add(true)
+        if (imageData != null) ordering = drawOrdering(imageData, dots, selectionStates = isSelected)
+    }
 
     /**
      * Normalizes the dot data based on the chosen strategy and mode.
@@ -251,6 +263,15 @@ class SampleDataset(val samples: MutableList<Sample>) {
     }
 
     /**
+     * Adds a manually selected ROI to every sample in the dataset using the same image-space
+     * coordinate and an estimated well radius. This works when all cards share the same layout.
+     */
+    fun addManualWellAt(center: Point, selectionStrategy: String) {
+        val radius = samples.firstOrNull()?.let { estimateWellRadius(it.dots) } ?: 18.0
+        samples.forEach { it.addManualDot(center, radius, selectionStrategy) }
+    }
+
+    /**
      * Populates the dataset by parsing a CSV file.
      *
      * @param uri The URI of the CSV file.
@@ -327,6 +348,8 @@ class DatasetModel : ViewModel() {
     // Persistent Session State
     val pendingReferences = mutableStateListOf<LabeledImage>()
     val pendingSamples = mutableStateListOf<LabeledImage>()
+    val referenceImageUris = mutableStateListOf<Uri>()
+    val sampleImageUris = mutableStateListOf<Uri>()
 
     // Temporary storage for labeling flow
     var temporaryUris by mutableStateOf<List<Uri>>(emptyList())
@@ -366,6 +389,7 @@ class DatasetModel : ViewModel() {
             if (pendingReferences.isNotEmpty()) {
                 try {
                     val refUris = pendingReferences.toList().map { it.uri }
+                    refUris.forEach { uri -> if (!referenceImageUris.contains(uri)) referenceImageUris.add(uri) }
                     val dataset = ingestImages(refUris, context, log = false, selectionStrategy = selectionStrategy)
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Reference"
@@ -387,6 +411,7 @@ class DatasetModel : ViewModel() {
             if (pendingSamples.isNotEmpty()) {
                 try {
                     val sampleUris = pendingSamples.toList().map { it.uri }
+                    sampleUris.forEach { uri -> if (!sampleImageUris.contains(uri)) sampleImageUris.add(uri) }
                     val dataset = ingestImages(sampleUris, context, log = false, selectionStrategy = selectionStrategy)
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Sample"
@@ -561,6 +586,8 @@ class DatasetModel : ViewModel() {
     fun reset() {
         pendingReferences.clear()
         pendingSamples.clear()
+        referenceImageUris.clear()
+        sampleImageUris.clear()
         temporaryUris = emptyList()
         referenceDataset = null
         newDataset = null

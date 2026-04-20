@@ -1,12 +1,12 @@
 package com.example.micropad.ui
 
 import android.net.Uri
-import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,20 +27,53 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.R
@@ -48,7 +81,9 @@ import com.example.micropad.data.CsvExportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
+import com.example.micropad.data.estimateWellRadius
 import kotlinx.coroutines.launch
+import org.opencv.core.Point
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -74,7 +109,7 @@ fun stringToURIs(data: String): List<Uri> {
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
 
-    val texts = remember {
+    val texts = remember(numberOfDots, dataset.samples.getOrNull(0)?.names?.toList()) {
         mutableStateListOf<String>().apply {
             val existingNames = dataset.samples.getOrNull(0)?.names ?: emptyList()
             repeat(numberOfDots) { i ->
@@ -82,7 +117,7 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
             }
         }
     }
-    val selected = remember {
+    val selected = remember(numberOfDots, dataset.samples.getOrNull(0)?.isSelected?.toList()) {
         mutableStateListOf<Boolean>().apply {
             val existingSelected = dataset.samples.getOrNull(0)?.isSelected ?: emptyList()
             repeat(numberOfDots) { i ->
@@ -180,6 +215,47 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
     }
 }
 
+
+@Composable
+private fun ManualRoiPickerDialog(
+    bitmap: android.graphics.Bitmap,
+    onDismiss: () -> Unit,
+    onPointSelected: (Point) -> Unit
+) {
+    var imageSize by remember { mutableStateOf(IntSize.Zero) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Tap missed dye spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("The new ROI will be added to every card using the same layout position.", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(12.dp))
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "First card for manual ROI selection",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { imageSize = it }
+                        .pointerInput(bitmap, imageSize) {
+                            detectTapGestures { offset ->
+                                if (imageSize.width == 0 || imageSize.height == 0) return@detectTapGestures
+                                val x = offset.x * bitmap.width / imageSize.width
+                                val y = offset.y * bitmap.height / imageSize.height
+                                onPointSelected(Point(x.toDouble(), y.toDouble()))
+                            }
+                        }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
@@ -187,6 +263,8 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     var selectedImage by remember { mutableIntStateOf(-1) }
     val strategies = listOf("Mean", "Center")
     val openAlertDialog = remember { mutableStateOf(false) }
+    var showManualRoiPicker by remember { mutableStateOf(false) }
+    var manualWellVersion by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.ingestAllPending(context) {}
@@ -239,6 +317,23 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                 )
             }
 
+            val firstSample = combinedSamples.firstOrNull()
+
+            if (showManualRoiPicker && firstSample?.ordering != null) {
+                ManualRoiPickerDialog(
+                    bitmap = firstSample.ordering!!,
+                    onDismiss = { showManualRoiPicker = false },
+                    onPointSelected = { point ->
+                        val radius = estimateWellRadius(firstSample.dots)
+                        combinedSamples.forEach { it.addManualDot(point, radius, viewModel.selectionStrategy) }
+                        manualWellVersion++
+                        selectedImage = 0
+                        focusedIndex = combinedSamples.firstOrNull()?.dots?.lastIndex
+                        showManualRoiPicker = false
+                    }
+                )
+            }
+
             Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
                 LazyColumn(
                     modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
@@ -256,7 +351,7 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                             border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
                         ) {
                             Row(modifier = Modifier.fillMaxSize()) {
-                                val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList()) {
+                                val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList(), manualWellVersion) {
                                     sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
                                 }
                                 if (displayBitmap != null) {
@@ -313,6 +408,15 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                                 }
                             }
                         }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    OutlinedButton(onClick = { showManualRoiPicker = true; selectedImage = 0 }) {
+                        Text("Add missed ROI")
                     }
                 }
 

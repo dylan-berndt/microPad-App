@@ -12,6 +12,8 @@ object AppErrorLogger {
 
     private const val FILE_NAME = "app_error_log.txt"
 
+    fun getLogFile(context: Context): File = File(context.filesDir, FILE_NAME)
+
     fun logError(context: Context, tag: String, message: String, e: Throwable? = null) {
         try {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -28,16 +30,16 @@ object AppErrorLogger {
 
             File(context.filesDir, FILE_NAME).appendText(logMessage)
 
-        } catch (ignored: Exception) {}
+        } catch (_: Exception) {}
     }
 
     fun hasErrors(context: Context): Boolean {
-        val file = File(context.filesDir, FILE_NAME)
+        val file = getLogFile(context)
         return file.exists() && file.readText().isNotBlank()
     }
 
     fun buildShareIntent(context: Context): Intent? {
-        val file = File(context.filesDir, FILE_NAME)
+        val file = getLogFile(context)
         if (!file.exists()) return null
 
         val uri = FileProvider.getUriForFile(

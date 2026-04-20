@@ -1,24 +1,49 @@
 package com.example.micropad
 
-import android.net.Uri
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -27,16 +52,18 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.micropad.data.AppErrorLogger
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.data.ErrorHandler
+import com.example.micropad.data.cloud.CloudSyncManager
 import com.example.micropad.ui.AnalysisConfigScreen
-import com.example.micropad.ui.WellNamingScreen
-import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.ui.CloudSyncScreen
 import com.example.micropad.ui.GalleryReferenceFlow
 import com.example.micropad.ui.LabelingScreen
-import com.example.micropad.data.ErrorHandler
-import com.example.micropad.data.AppErrorLogger
+import com.example.micropad.ui.WellNamingScreen
+import com.example.micropad.ui.camera.CameraScreen
 import com.example.micropad.ui.theme.MicroPadTheme
 import org.opencv.android.OpenCVLoader
 
@@ -58,6 +85,7 @@ class MainActivity : ComponentActivity() {
                     throw Exception("OpenCV failed to load")
                 }
             }
+        CloudSyncManager.ensureScheduledWorkMatchesPreference(this)
 
         enableEdgeToEdge()
         setContent {
@@ -94,6 +122,9 @@ fun MicroPadApp(viewModel: DatasetModel) {
         }
         composable("labelingScreen") {
             LabelingScreen(viewModel, navController)
+        }
+        composable("cloudSync") {
+            CloudSyncScreen(viewModel, navController)
         }
 
         // Sub-flows for data acquisition
@@ -155,7 +186,7 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
             onDismissRequest = { showDialog = false },
             title = { Text("Share system errors to improve the app?") },
             text = {
-                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+                Text("Errors were recorded during this session. You can share them once, or enable weekly Firebase uploads. Nothing uploads automatically unless you turn that on.")
             },
             confirmButton = {
                 TextButton(onClick = {
@@ -165,13 +196,16 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
                     }
                     AppErrorLogger.clearLog(context)
                     showDialog = false
-                }) { Text("Share") }
+                }) { Text("Share once") }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    AppErrorLogger.clearLog(context)
-                    showDialog = false
-                }) { Text("Dismiss") }
+                Row {
+                    TextButton(onClick = {
+                        CloudSyncManager.setWeeklyErrorUploadEnabled(context, true)
+                        showDialog = false
+                    }) { Text("Enable weekly upload") }
+                    TextButton(onClick = { showDialog = false }) { Text("Later") }
+                }
             }
         )
     }
@@ -260,6 +294,14 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
             ErrorReportBanner()
+            OutlinedButton(
+                onClick = { navController.navigate("cloudSync") },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Cloud Sync & Backups")
+            }
             Text(
                 text = "Analyze microPAD",
                 style = MaterialTheme.typography.headlineMedium,

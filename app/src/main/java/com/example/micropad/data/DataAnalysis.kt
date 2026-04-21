@@ -126,6 +126,12 @@ class Sample(
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
                 }
 
+                "Softmax" -> {
+                    val expVals = vals.map { kotlin.math.exp(it / 255.0) }
+                    val sumExp = expVals.sum()
+                    if (sumExp == 0.0) vals.map { 0.0 } else expVals.map { it / sumExp }
+                }
+
                 else -> vals
             }
             for (i in transformed.indices) {
@@ -350,35 +356,65 @@ class DatasetModel : ViewModel() {
     var comparisonMode by mutableStateOf("Whole Card")
     var selectionStrategy by mutableStateOf("Mean")
 
+    // ROI names persistence across screen transitions/simulation
+    val savedNames = mutableStateListOf<List<String>>()
+
+    // Track last ingestion state to avoid redundant work
+    private var lastIngestedRefUris = emptyList<Uri>()
+    private var lastIngestedSampleUris = emptyList<Uri>()
+    private var lastIngestedSelectionStrategy = ""
+
+    var ingestSelectionStrategy by mutableStateOf("Mean")
+
+    // Simulation State
+    var isSimulating by mutableStateOf(false)
+    var narrationText by mutableStateOf("")
+    var highlightedButtonId by mutableStateOf<String?>(null)
+
+
     /**
      * Ingests all pending images into structured datasets.
      */
     fun ingestAllPending(context: Context, onComplete: () -> Unit) {
+        if (isSimulating || isLoading) {
+            onComplete()
+            return
+        }
+
+        val currentRefUris = pendingReferences.map { it.uri }
+        val currentSampleUris = pendingSamples.map { it.uri }
+
+        // Skip if nothing has changed
+        if (currentRefUris == lastIngestedRefUris &&
+            currentSampleUris == lastIngestedSampleUris &&
+            ingestSelectionStrategy == lastIngestedSelectionStrategy &&
+            (referenceDataset != null || pendingReferences.isEmpty()) &&
+            (newDataset != null || pendingSamples.isEmpty())
+        ) {
+            onComplete()
+            return
+        }
+
         viewModelScope.launch {
             isLoading = true
 
-            // Gather existing names/selection to propagate to new samples
-            val existingRefNames = referenceDataset?.samples?.firstOrNull()?.names?.toList()
-            val existingRefSelection = referenceDataset?.samples?.firstOrNull()?.isSelected?.toList()
-            val existingSampleNames = newDataset?.samples?.firstOrNull()?.names?.toList()
-            val existingSampleSelection = newDataset?.samples?.firstOrNull()?.isSelected?.toList()
+            // Sync current names into savedNames before they are potentially lost during re-ingestion
+            syncNames()
 
             if (pendingReferences.isNotEmpty()) {
                 try {
-                    val refUris = pendingReferences.toList().map { it.uri }
-                    val dataset = ingestImages(refUris, context, log = false, selectionStrategy = selectionStrategy)
+                    val dataset = ingestImages(
+                        currentRefUris,
+                        context,
+                        log = false,
+                        selectionStrategy = ingestSelectionStrategy
+                    )
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Reference"
                         sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
-                        (existingRefNames ?: existingSampleNames)?.let { sample.names.clear(); sample.names.addAll(it) }
-                        (existingRefSelection ?: existingSampleSelection)?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
-                    if (referenceDataset == null) {
-                        referenceDataset = dataset
-                    } else {
-                        referenceDataset?.samples?.addAll(dataset.samples)
-                    }
-                    pendingReferences.clear()
+                    referenceDataset = dataset
+                    lastIngestedRefUris = currentRefUris
                 } catch (e: Exception) {
                     AppErrorLogger.logError(context, "Ingest", "Failed ingesting references", e)
                 }
@@ -386,22 +422,37 @@ class DatasetModel : ViewModel() {
 
             if (pendingSamples.isNotEmpty()) {
                 try {
-                    val sampleUris = pendingSamples.toList().map { it.uri }
-                    val dataset = ingestImages(sampleUris, context, log = false, selectionStrategy = selectionStrategy)
+                    val dataset = ingestImages(
+                        currentSampleUris,
+                        context,
+                        log = false,
+                        selectionStrategy = ingestSelectionStrategy
+                    )
                     dataset.samples.forEachIndexed { i, sample ->
                         sample.type = "Sample"
                         sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
-                        existingSampleNames?.let { sample.names.clear(); sample.names.addAll(it) }
-                        existingSampleSelection?.let { sample.isSelected.clear(); sample.isSelected.addAll(it) }
                     }
-                    if (newDataset == null) {
-                        newDataset = dataset
-                    } else {
-                        newDataset?.samples?.addAll(dataset.samples)
-                    }
-                    pendingSamples.clear()
+                    newDataset = dataset
+                    lastIngestedSampleUris = currentSampleUris
                 } catch (e: Exception) {
                     AppErrorLogger.logError(context, "Ingest", "Failed ingesting samples", e)
+                }
+            }
+
+            lastIngestedSelectionStrategy = ingestSelectionStrategy
+
+            // Restore names from savedNames
+            var nameIdx = 0
+            referenceDataset?.samples?.filter { it.isImage }?.forEach { sample ->
+                savedNames.getOrNull(nameIdx++)?.let { names ->
+                    sample.names.clear()
+                    sample.names.addAll(names)
+                }
+            }
+            newDataset?.samples?.filter { it.isImage }?.forEach { sample ->
+                savedNames.getOrNull(nameIdx++)?.let { names ->
+                    sample.names.clear()
+                    sample.names.addAll(names)
                 }
             }
 
@@ -558,6 +609,16 @@ class DatasetModel : ViewModel() {
         runWholeCardClassification()
     }
 
+    fun syncNames() {
+        savedNames.clear()
+        val combined = mutableListOf<Sample>()
+        referenceDataset?.samples?.filter { it.isImage }?.let { combined.addAll(it) }
+        newDataset?.samples?.filter { it.isImage }?.let { combined.addAll(it) }
+        combined.forEach { sample ->
+            savedNames.add(sample.names.toList())
+        }
+    }
+
     fun reset() {
         pendingReferences.clear()
         pendingSamples.clear()
@@ -566,6 +627,11 @@ class DatasetModel : ViewModel() {
         newDataset = null
         importedFileName = "data.csv"
         importedFileUri = null
+        comparisonMode = "Per Color"
+        savedNames.clear()
+        lastIngestedRefUris = emptyList()
+        lastIngestedSampleUris = emptyList()
+        lastIngestedSelectionStrategy = ""
         comparisonMode = "Whole Card"
     }
 

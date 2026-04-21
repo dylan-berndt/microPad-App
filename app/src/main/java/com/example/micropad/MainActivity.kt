@@ -1,24 +1,53 @@
 package com.example.micropad
 
-import android.net.Uri
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,18 +55,22 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.micropad.data.AppErrorLogger
 import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
-import com.example.micropad.ui.AnalysisScreen
+import com.example.micropad.data.ErrorHandler
 import com.example.micropad.ui.AnalysisConfigScreen
-import com.example.micropad.ui.WellNamingScreen
-import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.ui.AnalysisScreen
 import com.example.micropad.ui.GalleryReferenceFlow
 import com.example.micropad.ui.LabelingScreen
-import com.example.micropad.data.ErrorHandler
-import com.example.micropad.data.AppErrorLogger
+import com.example.micropad.ui.SimulationOverlay
+import com.example.micropad.ui.WellNamingScreen
+import com.example.micropad.ui.camera.CameraScreen
+import com.example.micropad.ui.runNavigationSimulation
 import com.example.micropad.ui.theme.MicroPadTheme
+import kotlinx.coroutines.launch
 import org.opencv.android.OpenCVLoader
 
 /**
@@ -78,59 +111,100 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MicroPadApp(viewModel: DatasetModel) {
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val scope = rememberCoroutineScope()
 
-    NavHost(navController = navController, startDestination = "home") {
-        composable("home") {
-            FrontPage(navController, viewModel)
-        }
-        composable("namingScreen") {
-            WellNamingScreen(viewModel, navController)
-        }
-        composable("options") {
-            AnalysisConfigScreen(viewModel, navController)
-        }
-        composable("analysis") {
-            AnalysisScreen(viewModel, navController)
-        }
-        composable("labelingScreen") {
-            LabelingScreen(viewModel, navController)
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Instruction / Cancel Buttons
+            Column(modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp).padding(top = 8.dp)) {
+                if (viewModel.isSimulating) {
+                    Button(
+                        onClick = { viewModel.isSimulating = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                        modifier = Modifier.align(Alignment.Start)
+                    ) {
+                        Text("Cancel")
+                    }
+                } else if (currentRoute != "analysis") {
+                    Button(
+                        onClick = {
+                            // Capture ROI names before simulation starts
+                            viewModel.syncNames()
+
+                            scope.launch {
+                                runNavigationSimulation(viewModel, navController)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.align(Alignment.Start)
+                    ) {
+                        Text("Instructions")
+                    }
+                }
+            }
+
+            Box(modifier = Modifier.weight(1f)) {
+                NavHost(navController = navController, startDestination = "home") {
+                    composable("home") {
+                        FrontPage(navController, viewModel)
+                    }
+                    composable("namingScreen") {
+                        WellNamingScreen(viewModel, navController)
+                    }
+                    composable("options") {
+                        AnalysisConfigScreen(viewModel, navController)
+                    }
+                    composable("analysis") {
+                        AnalysisScreen(viewModel, navController)
+                    }
+                    composable("labelingScreen") {
+                        LabelingScreen(viewModel, navController)
+                    }
+
+                    // Sub-flows for data acquisition
+                    composable("camera_ref") {
+                        CameraScreen(onImagesProcessed = { uris ->
+                            viewModel.temporaryUris = uris
+                            viewModel.labelingTargetIsReference = true
+                            navController.navigate("labelingScreen")
+                        })
+                    }
+                    composable("camera_sample") {
+                        CameraScreen(onImagesProcessed = { uris ->
+                            viewModel.temporaryUris = uris
+                            viewModel.labelingTargetIsReference = false
+                            navController.navigate("labelingScreen")
+                        })
+                    }
+                    composable("gallery_ref") {
+                        GalleryReferenceFlow(
+                            onImagesPicked = { uris ->
+                                viewModel.temporaryUris = uris
+                                viewModel.labelingTargetIsReference = true
+                                navController.navigate("labelingScreen")
+                            },
+                            onCancel = { navController.popBackStack() },
+                            isSimulating = viewModel.isSimulating
+                        )
+                    }
+                    composable("gallery_sample") {
+                        GalleryReferenceFlow(
+                            onImagesPicked = { uris ->
+                                viewModel.temporaryUris = uris
+                                viewModel.labelingTargetIsReference = false
+                                navController.navigate("labelingScreen")
+                            },
+                            onCancel = { navController.popBackStack() },
+                            isSimulating = viewModel.isSimulating
+                        )
+                    }
+                }
+            }
         }
 
-        // Sub-flows for data acquisition
-        composable("camera_ref") {
-            CameraScreen(onImagesProcessed = { uris ->
-                viewModel.temporaryUris = uris
-                viewModel.labelingTargetIsReference = true
-                navController.navigate("labelingScreen")
-            })
-        }
-        composable("camera_sample") {
-            CameraScreen(onImagesProcessed = { uris ->
-                viewModel.temporaryUris = uris
-                viewModel.labelingTargetIsReference = false
-                navController.navigate("labelingScreen")
-            })
-        }
-        composable("gallery_ref") {
-            GalleryReferenceFlow(
-                onImagesPicked = { uris ->
-                    viewModel.temporaryUris = uris
-                    viewModel.labelingTargetIsReference = true
-                    navController.navigate("labelingScreen")
-                },
-                onCancel = { navController.popBackStack() }
-            )
-        }
-        composable("gallery_sample") {
-            GalleryReferenceFlow(
-                onImagesPicked = { uris ->
-                    viewModel.temporaryUris = uris
-                    viewModel.labelingTargetIsReference = false
-                    navController.navigate("labelingScreen")
-                },
-                onCancel = { navController.popBackStack() }
-            )
-        }
+        SimulationOverlay(viewModel)
     }
 }
 
@@ -279,7 +353,10 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
                     viewModel.setImportedFile(uri, context)
                     viewModel.setReferenceDataset(uri, context)
                 }
-            }
+            },
+            isGalleryHighlighted = viewModel.highlightedButtonId == "ref_gallery",
+            isCameraHighlighted = viewModel.highlightedButtonId == "ref_camera",
+            isCsvHighlighted = viewModel.highlightedButtonId == "ref_csv"
         )
 
         // Card 2: Samples
@@ -289,7 +366,9 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
             count = viewModel.pendingSamples.size,
             onGallery = { navController.navigate("gallery_sample") },
             onCamera = { navController.navigate("camera_sample") },
-            showCsv = false
+            showCsv = false,
+            isGalleryHighlighted = viewModel.highlightedButtonId == "sample_gallery",
+            isCameraHighlighted = viewModel.highlightedButtonId == "sample_camera"
         )
     }
 }
@@ -302,7 +381,10 @@ fun DataAcquisitionCard(
     onGallery: () -> Unit,
     onCamera: () -> Unit,
     showCsv: Boolean,
-    onCsv: ((Uri?) -> Unit)? = null
+    onCsv: ((Uri?) -> Unit)? = null,
+    isGalleryHighlighted: Boolean = false,
+    isCameraHighlighted: Boolean = false,
+    isCsvHighlighted: Boolean = false
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -325,12 +407,22 @@ fun DataAcquisitionCard(
             Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onGallery, modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = onGallery,
+                    modifier = Modifier.weight(1f).then(
+                        if (isGalleryHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
+                    )
+                ) {
                     Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Gallery", fontSize = 12.sp)
                 }
-                OutlinedButton(onClick = onCamera, modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = onCamera,
+                    modifier = Modifier.weight(1f).then(
+                        if (isCameraHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
+                    )
+                ) {
                     Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Camera", fontSize = 12.sp)
@@ -338,7 +430,7 @@ fun DataAcquisitionCard(
             }
 
             if (showCsv && onCsv != null) {
-                CsvImportButton(onFileSelected = onCsv)
+                CsvImportButton(onFileSelected = onCsv, isHighlighted = isCsvHighlighted)
             }
         }
     }

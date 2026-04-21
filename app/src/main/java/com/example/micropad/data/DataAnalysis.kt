@@ -1,26 +1,23 @@
 package com.example.micropad.data
 
-import java.util.Collections
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
-import android.util.Log
-import com.example.micropad.data.ingestImages
-import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -31,14 +28,15 @@ data class LabeledImage(
 )
 
 /**
- * A class for handling the results of a whole-card classification.
+ * A class for handling the results of a classification.
  *
- * @property closestReferenceName The name of the reference that best matched the sample.
- * @property totalDistance The overall similarity distance (Euclidean or Manhattan) for the entire card.
+ * @property closestReferenceName The name of the reference that best matched the sample (for whole card) or a summary.
+ * @property totalDistance The overall similarity distance.
  * @property wellNames The names of the dye wells included in the classification.
  * @property sampleColors The extracted RGB colors from the sample's dye wells.
  * @property referenceColors The RGB colors from the corresponding reference's dye wells.
  * @property wellDistances The individual distances computed per dye well.
+ * @property wellClosestReferences The name of the reference that best matched each individual well (optional).
  */
 data class ClassificationResult(
     val closestReferenceName: String,
@@ -46,7 +44,22 @@ data class ClassificationResult(
     val wellNames: List<String>,
     val sampleColors: List<Scalar>,
     val referenceColors: List<Scalar>,
-    val wellDistances: List<Double>
+    val wellDistances: List<Double>,
+    val wellClosestReferences: List<String> = emptyList()
+)
+
+/**
+ * Represents an entry in the analysis history.
+ */
+data class AnalysisHistoryEntry(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val fileName: String,
+    val summary: String,
+    val csvData: String,
+    val distanceMetric: String,
+    val colorMode: String,
+    val normalizationStrategy: String
 )
 
 fun greyscale(r: Double, g: Double, b: Double): Double {
@@ -308,20 +321,6 @@ class SampleDataset(val samples: MutableList<Sample>) {
             samples.clear()
         }
     }
-
-    /**
-     * Performs classification on a target dataset using a reference dataset.
-     * This method is deprecated in favor of whole-card classification.
-     */
-    fun classify(
-        referenceData: SampleDataset,
-        newData: SampleDataset,
-        distance: String = "Euclidean",
-        mode: String = "RGB",
-        normalizationStrategy: String = "None"
-    ) {
-        // No longer actively used in the main flow, which prefers runWholeCardClassification.
-    }
 }
 
 /**
@@ -370,6 +369,9 @@ class DatasetModel : ViewModel() {
     var isSimulating by mutableStateOf(false)
     var narrationText by mutableStateOf("")
     var highlightedButtonId by mutableStateOf<String?>(null)
+
+    // History State
+    val analysisHistory = mutableStateListOf<AnalysisHistoryEntry>()
 
 
     /**
@@ -601,12 +603,92 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    fun runPerColorClassification() {
+        val ref = referenceDataset ?: return
+        val new = newDataset ?: return
+
+        for (sample in new.samples) {
+            try {
+                sample.classificationResults.clear()
+
+                val wellNames = mutableListOf<String>()
+                val sampleColors = mutableListOf<Scalar>()
+                val referenceColors = mutableListOf<Scalar>()
+                val wellDistances = mutableListOf<Double>()
+                val wellClosestRefs = mutableListOf<String>()
+
+                val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+
+                sample.isSelected.forEachIndexed { dotIdx, isSelected ->
+                    if (isSelected) {
+                        val dotFeatures = normalizedSample[dotIdx]
+                        var bestWellDistance = Double.MAX_VALUE
+                        var bestWellRefName = "Unknown"
+                        var bestWellRefColor = Scalar(0.0, 0.0, 0.0)
+
+                        for (refSample in ref.samples) {
+                            val normalizedRef = refSample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                            val refDotIdx = refSample.names.indexOfFirst { it == sample.names[dotIdx] }
+                            if (refDotIdx != -1 && refDotIdx < normalizedRef.size) {
+                                val refFeatures = normalizedRef[refDotIdx]
+                                val distance = when (distanceMetric) {
+                                    "Euclidean" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) {
+                                            val diff = dotFeatures[i] - refFeatures[i]
+                                            sum += diff * diff
+                                        }
+                                        sqrt(sum)
+                                    }
+                                    "Manhattan" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) { sum += abs(dotFeatures[i] - refFeatures[i]) }
+                                        sum
+                                    }
+                                    else -> Double.MAX_VALUE
+                                }
+                                if (distance < bestWellDistance) {
+                                    bestWellDistance = distance
+                                    bestWellRefName = refSample.referenceName
+                                    bestWellRefColor = refSample.rgb[refDotIdx]
+                                }
+                            }
+                        }
+
+                        wellNames.add(sample.names[dotIdx])
+                        sampleColors.add(sample.rgb[dotIdx])
+                        referenceColors.add(bestWellRefColor)
+                        wellDistances.add(bestWellDistance)
+                        wellClosestRefs.add(bestWellRefName)
+                    }
+                }
+
+                sample.classificationResults.add(
+                    ClassificationResult(
+                        closestReferenceName = "Mixed / Per Well",
+                        totalDistance = wellDistances.sum(),
+                        wellNames = wellNames,
+                        sampleColors = sampleColors,
+                        referenceColors = referenceColors,
+                        wellDistances = wellDistances,
+                        wellClosestReferences = wellClosestRefs
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e("Classification", "Per color classification failed", e)
+            }
+        }
+    }
+
     fun runClassification() {
         val ref = referenceDataset
         val new = newDataset
         if (ref == null || new == null) return
-        comparisonMode = "Whole Card"
-        runWholeCardClassification()
+        if (comparisonMode == "Whole Card") {
+            runWholeCardClassification()
+        } else {
+            runPerColorClassification()
+        }
     }
 
     fun syncNames() {
@@ -627,12 +709,32 @@ class DatasetModel : ViewModel() {
         newDataset = null
         importedFileName = "data.csv"
         importedFileUri = null
-        comparisonMode = "Per Color"
+        comparisonMode = "Whole Card"
         savedNames.clear()
         lastIngestedRefUris = emptyList()
         lastIngestedSampleUris = emptyList()
         lastIngestedSelectionStrategy = ""
-        comparisonMode = "Whole Card"
+    }
+
+    fun saveToHistory() {
+        val dataset = newDataset ?: return
+        val summary = dataset.samples.joinToString("; ") { sample ->
+            val result = sample.classificationResults.firstOrNull()
+            "${sample.referenceName} -> ${result?.closestReferenceName ?: "N/A"}"
+        }
+        val csvData = toCsvString(includeHeader = true, datasetChoice = "combined")
+        analysisHistory.add(0, AnalysisHistoryEntry(
+            fileName = importedFileName,
+            summary = summary,
+            csvData = csvData,
+            distanceMetric = distanceMetric,
+            colorMode = colorMode,
+            normalizationStrategy = normalizationStrategy
+        ))
+    }
+
+    fun deleteHistoryEntry(entry: AnalysisHistoryEntry) {
+        analysisHistory.remove(entry)
     }
 
     fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
@@ -640,11 +742,16 @@ class DatasetModel : ViewModel() {
         if (datasetChoice == "sample") {
             table = newDataset ?: return ""
         }
-        else {
+        else if (datasetChoice == "references") {
             table = referenceDataset ?: return ""
         }
+        else if (datasetChoice == "combined") {
+            val combinedCsv = toCsvString(includeHeader = true, datasetChoice = "references") +
+                    "\n" + toCsvString(includeHeader = false, datasetChoice = "sample")
+            return combinedCsv
+        }
 
-        val firstSample = table.samples.firstOrNull() ?: return ""
+        val firstSample = table?.samples?.firstOrNull() ?: return ""
         // Sort selected indices for consistent header and row column ordering
         val selectedIndices = firstSample.isSelected.indices
             .filter { firstSample.isSelected[it] }
@@ -655,10 +762,9 @@ class DatasetModel : ViewModel() {
             listOf("${name}_r", "${name}_g", "${name}_b")
         }
         val calHeaders = listOf(
-            "cal0_r","cal0_g","cal0_b",
-            "cal1_r","cal1_g","cal1_b",
-            "cal2_r","cal2_g","cal2_b",
-            "cal3_r","cal3_g","cal3_b"
+            "cal0_r","cal1_r","cal2_r","cal3_r",
+            "cal0_g","cal1_g","cal2_g","cal3_g",
+            "cal0_b","cal1_b","cal2_b","cal3_b"
         )
         val header = (listOf("sample_id","reference_name","distance_calculation","similarity_distance")
                 + calHeaders + dyeHeaders).joinToString(",")

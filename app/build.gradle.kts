@@ -83,6 +83,8 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.play.services.auth)
+
 
     // Testing
     testImplementation(libs.junit)

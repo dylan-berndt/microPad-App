@@ -15,6 +15,7 @@ kotlin = "2.2.10"
 composeBom = "2024.09.00"
 camerax = "1.5.3"
 opencv = "4.13.0"
+playServicesAuth = "21.5.1"
 runtime = "1.10.3"
 navigationCompose = "2.9.7"
 mockito = "5.11.0"
@@ -59,6 +60,7 @@ mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mo
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
 opencv = { module = "org.opencv:opencv", version.ref = "opencv" }
 google-firebase-storage = { group = "com.google.firebase", name = "firebase-storage" }
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -72,6 +72,7 @@ import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.SampleDataset
 import com.example.micropad.data.drawOrdering
 import kotlinx.coroutines.launch
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -232,7 +233,10 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                 title = { Text("Process & Name Wells", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )

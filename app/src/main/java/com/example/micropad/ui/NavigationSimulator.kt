@@ -25,11 +25,14 @@ import androidx.navigation.NavController
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.Sample
 import com.example.micropad.data.SampleDataset
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.opencv.core.MatOfPoint
 import org.opencv.core.Scalar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * UI Component that displays a narration overlay during the navigation simulation.
@@ -80,7 +83,8 @@ fun SimulationOverlay(viewModel: DatasetModel) {
  */
 suspend fun runNavigationSimulation(
     viewModel: DatasetModel,
-    navController: NavController
+    navController: NavController,
+    scope: CoroutineScope
 ) {
     // Capture state to restore later
     val prevReferences = viewModel.pendingReferences.toList()
@@ -95,21 +99,23 @@ suspend fun runNavigationSimulation(
     val startRoute = navController.currentDestination?.route
 
     try {
-        viewModel.isSimulating = true
-        // Ensure we start from home for the simulation
-        navController.navigate("home") {
-            popUpTo(navController.graph.startDestinationId)
+        withContext(Dispatchers.Main) {
+            navController.navigate("home") {
+                popUpTo(navController.graph.startDestinationId)
+                launchSingleTop = true
+            }
         }
-        
+
         suspend fun step(text: String, time: Long) {
             if (!currentCoroutineContext().isActive || !viewModel.isSimulating) {
                 throw kotlinx.coroutines.CancellationException("Simulation Canceled")
             }
-            viewModel.narrationText = text
-            delay(time)
-            if (!currentCoroutineContext().isActive || !viewModel.isSimulating) {
-                throw kotlinx.coroutines.CancellationException("Simulation Canceled")
+
+            withContext(Dispatchers.Main) {
+                viewModel.narrationText = text
             }
+
+            delay(time)
         }
 
         suspend fun pause(time: Long) {
@@ -127,7 +133,7 @@ suspend fun runNavigationSimulation(
         viewModel.highlightedButtonId = "ref_csv"
         pause(1500)
         viewModel.highlightedButtonId = null
-        
+
         val mockRef = Sample(null, null, null, mutableListOf(
             Pair(MatOfPoint(), Scalar(100.0, 50.0, 50.0)),
             Pair(MatOfPoint(), Scalar(50.0, 100.0, 50.0)),
@@ -142,18 +148,22 @@ suspend fun runNavigationSimulation(
         // 2. Sample Images
         step("Next, we can import test samples via CSV or capture them with the Camera.", 5000)
         viewModel.narrationText = "We can pick images from the gallery for our test samples."
-        viewModel.highlightedButtonId = "sample_gallery"
+        withContext(Dispatchers.Main) {
+            viewModel.highlightedButtonId = "sample_gallery"
+        }
         delay(1500)
         viewModel.highlightedButtonId = null
-        
+
         // Mock Gallery Screen
-        navController.navigate("gallery_sample")
-        delay(2000)
-        
+        withContext(kotlinx.coroutines.Dispatchers.Main) {
+            navController.navigate("gallery_sample")
+        }
+        delay(300)
+
         // Mock Labeling Screen
         viewModel.narrationText = "Give your sample a descriptive label."
         navController.navigate("labelingScreen")
-        delay(3000)
+        delay(300)
 
         val mockSample = Sample(null, null, null, mutableListOf(
             Pair(MatOfPoint(), Scalar(110.0, 55.0, 45.0)),
@@ -168,7 +178,7 @@ suspend fun runNavigationSimulation(
         // 3. Navigate to Naming
         viewModel.narrationText = "Now we process and name our Regions of Interest."
         navController.navigate("namingScreen")
-        delay(5000)
+        delay(300)
 
         // 4. Default ROI labels and uncheck dyes
         step("We set labels for the wells. You can use fewer than all dyes by unchecking them.", 5000)
@@ -178,7 +188,7 @@ suspend fun runNavigationSimulation(
         // 5. Navigate to Options
         viewModel.narrationText = "Choose your analysis configuration."
         navController.navigate("options")
-        delay(5000)
+        delay(300)
 
         // 6. Euclidean and Softmax
         step("Demonstrating Euclidean distance with Softmax normalization.", 5000)
@@ -188,40 +198,47 @@ suspend fun runNavigationSimulation(
         // 7. Per Color Classification
         step("Running classification 'by dye values' individually...", 5000)
         viewModel.comparisonMode = "Per Color"
-        viewModel.runClassification()
-        navController.navigate("analysis")
+        withContext(Dispatchers.IO) {
+            viewModel.runClassification()
+        }
+
+        withContext(Dispatchers.Main) {
+            delay(300) // small buffer for UI sync
+            navController.navigate("analysis")
+        }
 
         // 8. Whole Card Classification
         step("...and 'by whole card' for a comprehensive match.", 5000)
         viewModel.comparisonMode = "Whole Card"
-        viewModel.runClassification()
+        withContext(Dispatchers.Default) {
+            viewModel.runClassification()
+        }
 
         // 9. Reset and Finish
         step("Simulation complete. Returning you to where you were.", 5000)
-        
+
     } finally {
-        // Restore initial context
-        viewModel.pendingReferences.clear()
-        viewModel.pendingReferences.addAll(prevReferences)
-        viewModel.pendingSamples.clear()
-        viewModel.pendingSamples.addAll(prevSamples)
-        viewModel.referenceDataset = prevRefDataset
-        viewModel.newDataset = prevNewDataset
-        viewModel.distanceMetric = prevMetric
-        viewModel.normalizationStrategy = prevStrategy
-        viewModel.comparisonMode = prevCompMode
-        viewModel.ingestSelectionStrategy = prevIngestStrategy
-        viewModel.savedNames.clear()
-        viewModel.savedNames.addAll(prevSavedNames)
-        
-        viewModel.isSimulating = false
-        viewModel.narrationText = ""
-        viewModel.highlightedButtonId = null
-        
-        if (startRoute != null) {
-            navController.navigate(startRoute) {
-                popUpTo(navController.graph.startDestinationId) { inclusive = true }
-            }
+        withContext(kotlinx.coroutines.Dispatchers.Main) {
+
+            viewModel.pendingReferences.clear()
+            viewModel.pendingReferences.addAll(prevReferences)
+
+            viewModel.pendingSamples.clear()
+            viewModel.pendingSamples.addAll(prevSamples)
+
+            viewModel.referenceDataset = prevRefDataset
+            viewModel.newDataset = prevNewDataset
+            viewModel.distanceMetric = prevMetric
+            viewModel.normalizationStrategy = prevStrategy
+            viewModel.comparisonMode = prevCompMode
+            viewModel.ingestSelectionStrategy = prevIngestStrategy
+
+            viewModel.savedNames.clear()
+            viewModel.savedNames.addAll(prevSavedNames)
+
+            viewModel.isSimulating = false
+            viewModel.narrationText = ""
+            viewModel.highlightedButtonId = null
         }
     }
 }

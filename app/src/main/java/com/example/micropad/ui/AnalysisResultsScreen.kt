@@ -49,7 +49,7 @@ import com.example.micropad.data.ClassificationResult
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.writeToCsv
 import org.opencv.core.Scalar
-
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 /**
  * Display the results of a classification run.
  *
@@ -70,7 +70,10 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
                 title = { Text("Analysis Results") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )

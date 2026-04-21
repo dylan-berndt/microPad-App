@@ -3,6 +3,7 @@ package com.example.micropad
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,15 +86,33 @@ class MainActivity : ComponentActivity() {
     private val sharedViewModel: DatasetModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d("APP_FLOW", "onCreate")
         super.onCreate(savedInstanceState)
 
-        ErrorHandler.safeExecute(this) {
-                if (!OpenCVLoader.initLocal()) {
-                    throw Exception("OpenCV failed to load")
-                }
-            }
-
         enableEdgeToEdge()
+
+        Thread {
+            try {
+                Log.d("OpenCV", "Starting OpenCV init")
+
+                val start = System.currentTimeMillis()
+                val ok = OpenCVLoader.initLocal()
+
+                Log.d(
+                    "OpenCV",
+                    "Finished init in ${System.currentTimeMillis() - start}ms, success=$ok"
+                )
+
+                if (!ok) {
+                    Log.e("OpenCV", "OpenCV failed to load")
+                }
+
+            } catch (e: Exception) {
+                Log.e("OpenCV", "OpenCV exception", e)
+            }
+        }.start()
+
+        Log.d("APP_FLOW", "before setContent")
         setContent {
             MicroPadTheme {
                 MicroPadApp(sharedViewModel)
@@ -110,16 +130,17 @@ class MainActivity : ComponentActivity() {
  */
 @Composable
 fun MicroPadApp(viewModel: DatasetModel) {
+    Log.d("APP_FLOW", "MicroPadApp ENTER")
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val scope = rememberCoroutineScope()
+    val isUiBlocked = viewModel.isSimulating && currentRoute != "home"
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Instruction / Cancel Buttons
             Column(modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp).padding(top = 8.dp)) {
-                if (viewModel.isSimulating) {
+                if (viewModel.isSimulating && currentRoute == "home") {
                     Button(
                         onClick = { viewModel.isSimulating = false },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
@@ -130,14 +151,9 @@ fun MicroPadApp(viewModel: DatasetModel) {
                 } else if (currentRoute != "analysis") {
                     Button(
                         onClick = {
-                            // Capture ROI names before simulation starts
-                            viewModel.syncNames()
-
-                            scope.launch {
-                                runNavigationSimulation(viewModel, navController)
-                            }
+                            viewModel.startSimulation(navController)
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        enabled = !viewModel.isSimulating,
                         modifier = Modifier.align(Alignment.Start)
                     ) {
                         Text("Instructions")
@@ -204,7 +220,7 @@ fun MicroPadApp(viewModel: DatasetModel) {
             }
         }
 
-        SimulationOverlay(viewModel)
+         // SimulationOverlay(viewModel)
     }
 }
 
@@ -222,6 +238,7 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
     @Composable
     fun ErrorReportBanner() {
         val context = LocalContext.current
+        // Evaluate once at composition time — not on every recompose
         var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
         if (!showDialog) return
 
@@ -229,21 +246,28 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
             onDismissRequest = { showDialog = false },
             title = { Text("Share system errors to improve the app?") },
             text = {
-                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+                Text(
+                    "Errors were recorded during this session. You can share them anonymously " +
+                            "to help us fix issues. The file contains no personal data."
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val intent = AppErrorLogger.buildShareIntent(context)
-                    if (intent != null) {
-                        context.startActivity(Intent.createChooser(intent, "Share error log"))
+                    ErrorHandler.safeUnit(context, tag = "ErrorShare") {
+                        val intent = AppErrorLogger.buildShareIntent(context)
+                        if (intent != null) {
+                            context.startActivity(Intent.createChooser(intent, "Share error log"))
+                        }
+                        AppErrorLogger.clearLog(context)
                     }
-                    AppErrorLogger.clearLog(context)
                     showDialog = false
                 }) { Text("Share") }
             },
             dismissButton = {
                 TextButton(onClick = {
-                    AppErrorLogger.clearLog(context)
+                    ErrorHandler.safeUnit(context, tag = "ErrorShare") {
+                        AppErrorLogger.clearLog(context)
+                    }
                     showDialog = false
                 }) { Text("Dismiss") }
             }
@@ -263,14 +287,12 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
 
                 val canExportReference = viewModel.pendingReferences.isNotEmpty()
 
-                val openAlertDialog = remember {mutableStateOf(false)}
+                val openAlertDialog = rememberSaveable { mutableStateOf(false) }
 
-                when {
-                    openAlertDialog.value -> {
+                if (openAlertDialog.value) {
                         ReferenceOnlyDialog(
                             navigate = {navController.navigate("namingScreen")},
                             onDismissRequest = { openAlertDialog.value = false })
-                    }
                 }
 
                 Column {
@@ -390,13 +412,20 @@ fun DataAcquisitionCard(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
                 if (count > 0) {
                     Badge(containerColor = MaterialTheme.colorScheme.primary) {
                         Text("$count added", color = Color.White, modifier = Modifier.padding(4.dp))
@@ -404,26 +433,49 @@ fun DataAcquisitionCard(
                 }
             }
 
-            Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
                     onClick = onGallery,
                     modifier = Modifier.weight(1f).then(
-                        if (isGalleryHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
+                        if (isGalleryHighlighted) Modifier.border(
+                            4.dp,
+                            Color.Yellow,
+                            RoundedCornerShape(8.dp)
+                        ).padding(4.dp) else Modifier
                     )
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Gallery", fontSize = 12.sp)
                 }
                 OutlinedButton(
                     onClick = onCamera,
                     modifier = Modifier.weight(1f).then(
-                        if (isCameraHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
+                        if (isCameraHighlighted) Modifier.border(
+                            4.dp,
+                            Color.Yellow,
+                            RoundedCornerShape(8.dp)
+                        ).padding(4.dp) else Modifier
                     )
                 ) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Camera", fontSize = 12.sp)
                 }

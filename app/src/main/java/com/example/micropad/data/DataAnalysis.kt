@@ -21,6 +21,12 @@ import kotlin.math.sqrt
 import android.util.Log
 import com.example.micropad.data.ingestImages
 import kotlin.collections.get
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.navigation.NavController
+import com.example.micropad.ui.runNavigationSimulation
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Data class to hold image and its semantic label.
@@ -328,6 +334,8 @@ class SampleDataset(val samples: MutableList<Sample>) {
  * ViewModel for managing the state of datasets across different screens in the app.
  */
 class DatasetModel : ViewModel() {
+
+    var simulationRunning by mutableStateOf(false)
     var labelingTargetIsReference by mutableStateOf(true)
 
     // Persistent Session State
@@ -633,6 +641,22 @@ class DatasetModel : ViewModel() {
         lastIngestedSampleUris = emptyList()
         lastIngestedSelectionStrategy = ""
         comparisonMode = "Whole Card"
+    }
+
+    fun startSimulation(navController: NavController) {
+        if (isSimulating) return  // 🔥 prevents double start
+
+        isSimulating = true
+        syncNames()
+
+        viewModelScope.launch(Dispatchers.Default) {
+            runNavigationSimulation(
+                viewModel = this@DatasetModel,
+                navController = navController,
+                scope = viewModelScope
+            )
+            isSimulating = false
+        }
     }
 
     fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {

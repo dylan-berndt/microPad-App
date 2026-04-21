@@ -1,23 +1,26 @@
 package com.example.micropad.data
 
-import android.content.Context
+import java.util.Collections
 import android.graphics.Bitmap
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Scalar
+import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
-import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
+import android.util.Log
+import com.example.micropad.data.ingestImages
+import kotlin.collections.get
 
 /**
  * Data class to hold image and its semantic label.
@@ -28,14 +31,15 @@ data class LabeledImage(
 )
 
 /**
- * A class for handling the results of a classification.
+ * A class for handling the results of a whole-card classification.
  *
- * @property closestReferenceName The name of the reference that best matched the sample (for whole card) or a summary.
- * @property totalDistance The overall similarity distance.
+ * @property closestReferenceName The name of the reference that best matched the sample.
+ * @property totalDistance The overall similarity distance (Euclidean or Manhattan) for the entire card.
  * @property wellNames The names of the dye wells included in the classification.
  * @property sampleColors The extracted RGB colors from the sample's dye wells.
  * @property referenceColors The RGB colors from the corresponding reference's dye wells.
  * @property wellDistances The individual distances computed per dye well.
+ * ADDITION:
  * @property wellClosestReferences The name of the reference that best matched each individual well (optional).
  */
 data class ClassificationResult(
@@ -45,6 +49,7 @@ data class ClassificationResult(
     val sampleColors: List<Scalar>,
     val referenceColors: List<Scalar>,
     val wellDistances: List<Double>,
+    //ADDITION
     val wellClosestReferences: List<String> = emptyList()
 )
 
@@ -137,12 +142,6 @@ class Sample(
                     val mean = vals.average()
                     val std = sqrt(vals.map { (it - mean) * (it - mean) }.average())
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
-                }
-
-                "Softmax" -> {
-                    val expVals = vals.map { kotlin.math.exp(it / 255.0) }
-                    val sumExp = expVals.sum()
-                    if (sumExp == 0.0) vals.map { 0.0 } else expVals.map { it / sumExp }
                 }
 
                 else -> vals
@@ -285,27 +284,46 @@ class SampleDataset(val samples: MutableList<Sample>) {
             val lines = input.bufferedReader().readLines()
             if (lines.isEmpty()) return
 
-            val header = lines[0].trimStart('\uFEFF').split(",")
-            val metadataColumns = 4
-            val calibrationColumns = 12
-            val colorColumns = header.drop(metadataColumns + calibrationColumns)
-            val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
-            val numberOfDots = dyeNames.size
+            val firstLine = lines[0].trimStart('\uFEFF')
+            val header = firstLine.split(",")
+
+            val dyeNames = header.filter { it.endsWith("_r") && !it.startsWith("cal") }
+                                .map { it.removeSuffix("_r") }
 
             lines.drop(1).forEach { line ->
                 if (line.isBlank()) return@forEach
                 try {
                     val tokens = line.split(",")
-                    if (tokens.size < metadataColumns + calibrationColumns + numberOfDots * 3) return@forEach
-                    val refName = tokens[1].trim()
-                    val numCalPoints = calibrationColumns / 3
-                    val colors = tokens.drop(metadataColumns).chunked(3).take(numCalPoints + numberOfDots).map { chunk ->
-                        Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
-                    }.toMutableList()
+                    val rowMap = header.indices.associate { i -> header[i] to tokens.getOrNull(i) }
 
-                    val dots = colors.subList(numCalPoints, colors.size).map { Pair(MatOfPoint(), it) }.toMutableList()
-                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints), isImage = false)
-                    sample.names.clear(); sample.names.addAll(dyeNames)
+                    val refName = rowMap["reference_name"]?.trim() ?: ""
+
+                    val squares = mutableListOf<Scalar>()
+                    for (i in 0..3) {
+                        val r = rowMap["cal${i}_r"]?.toDoubleOrNull() ?: 0.0
+                        val g = rowMap["cal${i}_g"]?.toDoubleOrNull() ?: 0.0
+                        val b = rowMap["cal${i}_b"]?.toDoubleOrNull() ?: 0.0
+                        squares.add(Scalar(r, g, b))
+                    }
+
+                    val dots = mutableListOf<Pair<MatOfPoint, Scalar>>()
+                    val names = mutableListOf<String>()
+
+                    for (name in dyeNames) {
+                        val rStr = rowMap["${name}_r"]
+                        val gStr = rowMap["${name}_g"]
+                        val bStr = rowMap["${name}_b"]
+
+                        if (!rStr.isNullOrBlank() && !gStr.isNullOrBlank() && !bStr.isNullOrBlank()) {
+                            dots.add(Pair(MatOfPoint(), Scalar(rStr.toDoubleOrNull() ?: 0.0,
+                                                               gStr.toDoubleOrNull() ?: 0.0,
+                                                               bStr.toDoubleOrNull() ?: 0.0)))
+                            names.add(name)
+                        }
+                    }
+
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares = squares, isImage = false)
+                    sample.names.clear(); sample.names.addAll(names)
                     sample.referenceName = refName
                     samples.add(sample)
                     Log.d("CSV", "Sample added: ${sample.rgb.size} dots identified")
@@ -320,6 +338,20 @@ class SampleDataset(val samples: MutableList<Sample>) {
             AppErrorLogger.logError(context, "CSV", "fromCSV: unexpected failure", e)
             samples.clear()
         }
+    }
+
+    /**
+     * Performs classification on a target dataset using a reference dataset.
+     * This method is deprecated in favor of whole-card classification.
+     */
+    fun classify(
+        referenceData: SampleDataset,
+        newData: SampleDataset,
+        distance: String = "Euclidean",
+        mode: String = "RGB",
+        normalizationStrategy: String = "None"
+    ) {
+        // No longer actively used in the main flow, which prefers runWholeCardClassification.
     }
 }
 
@@ -738,33 +770,22 @@ class DatasetModel : ViewModel() {
     }
 
     fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
-        var table: SampleDataset? = null
-        if (datasetChoice == "sample") {
-            table = newDataset ?: return ""
-        }
-        else if (datasetChoice == "references") {
-            table = referenceDataset ?: return ""
-        }
-        else if (datasetChoice == "combined") {
-            val combinedCsv = toCsvString(includeHeader = true, datasetChoice = "references") +
-                    "\n" + toCsvString(includeHeader = false, datasetChoice = "sample")
-            return combinedCsv
-        }
+        val table = if (datasetChoice == "sample") newDataset else referenceDataset
+        if (table == null || table.samples.isEmpty()) return ""
 
-        val firstSample = table?.samples?.firstOrNull() ?: return ""
-        // Sort selected indices for consistent header and row column ordering
-        val selectedIndices = firstSample.isSelected.indices
-            .filter { firstSample.isSelected[it] }
-            .sortedBy { firstSample.names[it] }
+        // Calculate the union of all well names across all samples in the dataset, regardless of selection
+        val allWellNames = table.samples.flatMap { sample ->
+            sample.names.filter { it.isNotBlank() }
+        }.distinct().sorted()
 
-        val dyeHeaders = selectedIndices.flatMap { i ->
-            val name = firstSample.names[i]
+        val dyeHeaders = allWellNames.flatMap { name ->
             listOf("${name}_r", "${name}_g", "${name}_b")
         }
         val calHeaders = listOf(
-            "cal0_r","cal1_r","cal2_r","cal3_r",
-            "cal0_g","cal1_g","cal2_g","cal3_g",
-            "cal0_b","cal1_b","cal2_b","cal3_b"
+            "cal0_r","cal0_g","cal0_b",
+            "cal1_r","cal1_g","cal1_b",
+            "cal2_r","cal2_g","cal2_b",
+            "cal3_r","cal3_g","cal3_b"
         )
         val header = (listOf("sample_id","reference_name","distance_calculation","similarity_distance")
                 + calHeaders + dyeHeaders).joinToString(",")
@@ -779,16 +800,21 @@ class DatasetModel : ViewModel() {
                 listOf(it.`val`[0], it.`val`[1], it.`val`[2])
             }.map { it.toString() }
 
-            val rgbParts = selectedIndices.flatMap { index ->
-                val scalar = sample.rgb[index]
-                listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
-            }.map { it.toString() }
+            val rgbParts = allWellNames.flatMap { name ->
+                val index = sample.names.indexOf(name)
+                // Fill with RGB values if well exists, even if not selected
+                if (index != -1) {
+                    val scalar = sample.rgb[index]
+                    listOf(scalar.`val`[0].toString(), scalar.`val`[1].toString(), scalar.`val`[2].toString())
+                } else {
+                    listOf("", "", "")
+                }
+            }
 
             (meta + cal + rgbParts).joinToString(",")
         }
 
         val body = rows.joinToString("\n")
-
         return if (includeHeader) "$header\n$body" else body
     }
 }

@@ -3,11 +3,11 @@ package com.example.micropad
 import android.net.Uri
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -198,7 +197,7 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
         if (!showDialog) return
 
         AlertDialog(
-            onDismissRequest = { showDialog = false },
+            onDismissRequest = { },
             title = { Text("Share system errors to improve the app?") },
             text = {
                 Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
@@ -210,13 +209,11 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
                         context.startActivity(Intent.createChooser(intent, "Share error log"))
                     }
                     AppErrorLogger.clearLog(context)
-                    showDialog = false
                 }) { Text("Share") }
             },
             dismissButton = {
                 TextButton(onClick = {
                     AppErrorLogger.clearLog(context)
-                    showDialog = false
                 }) { Text("Dismiss") }
             }
         )

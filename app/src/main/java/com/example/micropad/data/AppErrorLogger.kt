@@ -2,6 +2,7 @@ package com.example.micropad.data
 
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
@@ -38,6 +39,7 @@ object AppErrorLogger {
         e: Throwable? = null
     ) {
         try {
+            Log.e(tag, message)
             val file = File(context.filesDir, FILE_NAME)
             val array: JSONArray = if (file.exists()) {
                 try { JSONArray(file.readText()) } catch (_: Exception) { JSONArray() }

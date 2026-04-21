@@ -632,7 +632,8 @@ fun findDots(
         if (sizeSorted.size < 2) return mutableListOf()
         // Candidate locations
         val top = sizeSorted.take(4)
-        val medianArea = sizeSorted[sizeSorted.size / 2].second
+        val medianArea = top.map { it.second }.sorted()[top.size / 2]
+
         if (medianArea <= 0) return mutableListOf()
 
         val finalDots = sizeSorted

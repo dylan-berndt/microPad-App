@@ -59,7 +59,6 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation.layout)
 
-    // Coil & OpenCV
     val activity_version = ""
     implementation("androidx.activity:activity:$activity_version")
     implementation("androidx.activity:activity-ktx:$activity_version")

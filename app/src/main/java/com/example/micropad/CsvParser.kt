@@ -3,7 +3,7 @@ package com.example.micropad
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import com.example.micropad.CsvParser.expectedHeaders
+import com.example.micropad.data.AppErrorLogger
 import com.example.micropad.data.ErrorHandler
 
 /**
@@ -15,30 +15,49 @@ import com.example.micropad.data.ErrorHandler
  */
 object CsvParser {
 
-    private val expectedHeaders = listOf(
+    private val REQUIRED_HEADERS = listOf(
         "sample_id", "reference_name",
         "distance_calculation", "similarity_score"
     )
 
+    /**
+     * @return true if the file passes all validation checks, false otherwise.
+     *         Never throws — all exceptions are caught and logged.
+     */
     fun parseAndValidate(
         contentResolver: ContentResolver,
         uri: Uri,
         context: Context
-    ): Boolean {
+    ): Boolean = ErrorHandler.safeExecute(context, defaultValue = false, tag = "CsvParser") {
+        val inputStream = contentResolver.openInputStream(uri)
+            ?: run {
+                AppErrorLogger.logError(context, "CsvParser", "Cannot open stream for $uri")
+                return@safeExecute false
+            }
 
-        return ErrorHandler.safeExecute(context, false) {
+        val lines = inputStream.bufferedReader().use { reader ->
+            reader.readLines().map { it.trim() }.filter { it.isNotEmpty() }
+        }
 
-            val inputStream = contentResolver.openInputStream(uri)
-                ?: throw Exception("Cannot open file")
+        if (lines.isEmpty()) {
+            AppErrorLogger.logError(context, "CsvParser", "CSV is empty: $uri")
+            return@safeExecute false
+        }
 
-            val text = inputStream.bufferedReader().use { it.readText() }
+        val headers = lines[0].split(",").map { it.trim() }
+        if (!headers.containsAll(REQUIRED_HEADERS)) {
+            AppErrorLogger.logError(
+                context, "CsvParser",
+                "Missing required headers. Found: $headers, need: $REQUIRED_HEADERS"
+            )
+            return@safeExecute false
+        }
 
-            val headers = text.lines().firstOrNull()
-                ?.split(",")
-                ?.map { it.trim() }
-                ?: throw Exception("Invalid CSV format")
+        if (lines.size < 2) {
+            AppErrorLogger.logError(context, "CsvParser", "CSV has header but no data rows: $uri")
+            return@safeExecute false
+        }
 
-            headers.containsAll(expectedHeaders)
-        } ?: false
-    }
+        true
+    } ?: false
 }

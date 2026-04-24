@@ -3,9 +3,11 @@ package com.example.micropad
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,14 +17,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +54,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -70,6 +80,7 @@ import org.opencv.android.OpenCVLoader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d("APP_FLOW", "onCreate")
         super.onCreate(savedInstanceState)
 
         ErrorHandler.safeExecute(this) {
@@ -81,6 +92,29 @@ class MainActivity : ComponentActivity() {
         }
 
         enableEdgeToEdge()
+
+        Thread {
+            try {
+                Log.d("OpenCV", "Starting OpenCV init")
+
+                val start = System.currentTimeMillis()
+                val ok = OpenCVLoader.initLocal()
+
+                Log.d(
+                    "OpenCV",
+                    "Finished init in ${System.currentTimeMillis() - start}ms, success=$ok"
+                )
+
+                if (!ok) {
+                    Log.e("OpenCV", "OpenCV failed to load")
+                }
+
+            } catch (e: Exception) {
+                Log.e("OpenCV", "OpenCV exception", e)
+            }
+        }.start()
+
+        Log.d("APP_FLOW", "before setContent")
         setContent {
             MicroPadTheme {
                 val viewModel: DatasetModel = viewModel()
@@ -97,12 +131,13 @@ fun MainContent(viewModel: DatasetModel, navController: NavHostController) {
     val currentRoute = navBackStackEntry?.destination?.route
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val isUiBlocked = viewModel.isSimulating && currentRoute != "home"
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Instruction / Cancel Buttons
             Column(modifier = Modifier.statusBarsPadding().padding(horizontal = 16.dp).padding(top = 8.dp)) {
-                if (viewModel.isSimulating) {
+                if (viewModel.isSimulating && currentRoute == "home") {
                     Button(
                         onClick = { viewModel.isSimulating = false },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
@@ -123,7 +158,7 @@ fun MainContent(viewModel: DatasetModel, navController: NavHostController) {
 
                                 scope.launch {
                                     ErrorHandler.safeExecute(context) {
-                                        runNavigationSimulation(viewModel, navController)
+                                        runNavigationSimulation(viewModel, navController, scope)
                                     }
                                 }
                             },
@@ -203,7 +238,7 @@ fun MainContent(viewModel: DatasetModel, navController: NavHostController) {
             }
         }
 
-        SimulationOverlay(viewModel)
+         // SimulationOverlay(viewModel)
     }
 }
 
@@ -218,58 +253,65 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
     )
 }
 
-@Composable
-fun ErrorReportBanner() {
-    val context = LocalContext.current
-    var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
-    if (!showDialog) return
+    @Composable
+    fun ErrorReportBanner() {
+        val context = LocalContext.current
+        // Evaluate once at composition time — not on every recompose
+        var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
+        if (!showDialog) return
 
-    AlertDialog(
-        onDismissRequest = { },
-        title = { Text("Share system errors to improve the app?") },
-        text = {
-            Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                val intent = AppErrorLogger.buildShareIntent(context)
-                if (intent != null) {
-                    context.startActivity(Intent.createChooser(intent, "Share error log"))
-                }
-                AppErrorLogger.clearLog(context)
-            }) { Text("Share") }
-        },
-        dismissButton = {
-            TextButton(onClick = {
-                AppErrorLogger.clearLog(context)
-            }) { Text("Dismiss") }
-        }
-    )
-}
-
-@Composable
-fun FrontPage(navController: NavHostController, viewModel: DatasetModel) {
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        bottomBar = {
-            val hasData = viewModel.pendingReferences.isNotEmpty() ||
-                          viewModel.pendingSamples.isNotEmpty() ||
-                          viewModel.referenceDataset != null
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Share system errors to improve the app?") },
+            text = {
+                Text(
+                    "Errors were recorded during this session. You can share them anonymously " +
+                            "to help us fix issues. The file contains no personal data."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    ErrorHandler.safeUnit(context, tag = "ErrorShare") {
+                        val intent = AppErrorLogger.buildShareIntent(context)
+                        if (intent != null) {
+                            context.startActivity(Intent.createChooser(intent, "Share error log"))
+                        }
+                        AppErrorLogger.clearLog(context)
+                    }
+                    showDialog = false
+                }) { Text("Share") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    ErrorHandler.safeUnit(context, tag = "ErrorShare") {
+                        AppErrorLogger.clearLog(context)
+                    }
+                    showDialog = false
+                }) { Text("Dismiss") }
+            }
+        )
+    }
+    @Composable
+    fun FrontPage(navController: NavHostController, viewModel: DatasetModel) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                val hasData = viewModel.pendingReferences.isNotEmpty() ||
+                              viewModel.pendingSamples.isNotEmpty() ||
+                              viewModel.referenceDataset != null
 
             val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
                              viewModel.pendingSamples.isNotEmpty()
 
             val canExportReference = viewModel.pendingReferences.isNotEmpty()
 
-            val openAlertDialog = remember {mutableStateOf(false)}
+                val openAlertDialog = rememberSaveable { mutableStateOf(false) }
 
-            when {
-                openAlertDialog.value -> {
-                    ReferenceOnlyDialog(
-                        navigate = {navController.navigate("namingScreen")},
-                        onDismissRequest = { openAlertDialog.value = false })
+                if (openAlertDialog.value) {
+                        ReferenceOnlyDialog(
+                            navigate = {navController.navigate("namingScreen")},
+                            onDismissRequest = { openAlertDialog.value = false })
                 }
-            }
 
             Column {
                 if (hasData) {
@@ -404,33 +446,58 @@ fun DataAcquisitionCard(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
+                if (count > 0) {
+                    Badge(containerColor = MaterialTheme.colorScheme.primary) {
+                        Text("$count added", color = Color.White, modifier = Modifier.padding(4.dp))
+                    }
+                }
             }
+
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
             )
-            Text(
-                text = "Items added: $count",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedButton(
                     onClick = onGallery,
-                    modifier = Modifier.weight(1f),
-                    colors = if (isGalleryHighlighted) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.outlinedButtonColors()
+                    modifier = Modifier.weight(1f).then(
+                        if (isGalleryHighlighted) Modifier.border(
+                            4.dp,
+                            Color.Yellow,
+                            RoundedCornerShape(8.dp)
+                        ).padding(4.dp) else Modifier
+                    )
                 ) {
-                    Text("Gallery")
+                    Icon(
+                        Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Gallery", fontSize = 12.sp)
                 }
                 OutlinedButton(
                     onClick = onCamera,
-                    modifier = Modifier.weight(1f),
-                    colors = if (isCameraHighlighted) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.outlinedButtonColors()
+                    modifier = Modifier.weight(1f).then(
+                        if (isCameraHighlighted) Modifier.border(
+                            4.dp,
+                            Color.Yellow,
+                            RoundedCornerShape(8.dp)
+                        ).padding(4.dp) else Modifier
+                    )
                 ) {
-                    Text("Camera")
+                    Icon(
+                        Icons.Default.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Camera", fontSize = 12.sp)
                 }
             }
             if (showCsv) {

@@ -3,6 +3,7 @@ package com.example.micropad.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
@@ -121,50 +122,60 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
  * @return Null if no card candidate is found.
  */
 fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
-    return try {
-        if (image.empty()) {
-            AppErrorLogger.logError(context, "ImagePipeline", "findAndWarpCard: empty input")
-            return null
-        }
-        Log.d("Pipeline", "--- Stage: Card Localization ---")
-        val hsv = Mat(); val whiteMask = Mat(); val closed = Mat(); val hierarchy = Mat()
-        try {
-            Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
-            Core.inRange(hsv, Scalar(0.0, 0.0, 180.0), Scalar(180.0, 40.0, 255.0), whiteMask)
-            if (log) saveMat(whiteMask, "card_white_mask.png", context)
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-            Imgproc.morphologyEx(whiteMask, closed, Imgproc.MORPH_CLOSE, kernel)
-            kernel.release()
-            val contours = ArrayList<MatOfPoint>()
-            Imgproc.findContours(
-                closed, contours, hierarchy,
-                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
-            )
-            val minArea = image.total() * 0.10
-            val best = contours.filter { Imgproc.contourArea(it) > minArea }
-                .maxByOrNull { Imgproc.contourArea(it) }
-            if (best == null) {
-                Log.w("Pipeline", "No card contour found")
-                return null
-            }
-            val rect = Imgproc.boundingRect(best)
-            // Guard: bounding rect must be inside image bounds
-            if (rect.x < 0 || rect.y < 0 ||
-                rect.x + rect.width > image.cols() ||
-                rect.y + rect.height > image.rows()) {
-                AppErrorLogger.logError(context, "ImagePipeline", "findAndWarpCard: bounding rect out of image bounds")
-                return null
-            }
-            val cropped = Mat(image, rect)
-            if (log) saveMat(cropped, "card_warped.png", context)
-            cropped
-        } finally {
-            hsv.release(); whiteMask.release(); closed.release(); hierarchy.release()
-        }
-    } catch (e: Exception) {
-        AppErrorLogger.logError(context, "ImagePipeline", "findAndWarpCard failed", e)
-        null
+    Log.d("Pipeline", "--- Stage: Card Localization & Warping ---")
+    val hsv = Mat()
+    Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
+
+    val whiteMask = Mat()
+    Core.inRange(
+        hsv,
+        Scalar(0.0, 0.0, 160.0),
+        Scalar(180.0, 50.0, 255.0),
+        whiteMask
+    )
+
+    val whiteRatio = Core.countNonZero(whiteMask).toDouble() / image.total()
+    if (whiteRatio > 0.5) {
+        hsv.release(); whiteMask.release()
+        Log.d("Pipeline", "Warping Skipped: Image is ${(whiteRatio * 100).toInt()}% white, returning full image")
+        return image
     }
+
+    if (log) saveMat(whiteMask, "card_white_mask.png", context)
+
+    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
+    val closed = Mat()
+    Imgproc.morphologyEx(whiteMask, closed, Imgproc.MORPH_CLOSE, kernel)
+
+    val contours = ArrayList<MatOfPoint>()
+    val hierarchy = Mat()
+    Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+    val best = contours
+        .filter { Imgproc.contourArea(it) > image.total() * 0.10 }
+        .maxByOrNull { Imgproc.contourArea(it) }
+
+    val area = Imgproc.contourArea(best)
+    if (area > image.total() * 0.80) {
+        Log.w("Pipeline", "Card region too large — likely background bleed, skipping crop")
+        return image  // return full image rather than a bad crop
+    }
+
+    if (best == null) {
+        Log.w("Pipeline", "Warping Failed: No card contour found")
+        return null
+    }
+
+    val rect = Imgproc.boundingRect(best)
+    Log.d("Pipeline", "Data Movement: Cropping to Card Bounding Rect: $rect")
+    val cropped = Mat(image, rect)
+
+    if (log) saveMat(cropped, "card_warped.png", context)
+
+    hsv.release(); whiteMask.release()
+    closed.release(); hierarchy.release()
+
+    return cropped
 }
 
 /**
@@ -756,8 +767,22 @@ suspend fun ingestImages(
                     return@async null
                 }
 
-                val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-                bitmap.recycle()   // free original immediately to halve peak memory
+                val rotation = context.contentResolver.openInputStream(uri)?.use { exifStream ->
+                    val exif = ExifInterface(exifStream)
+                    when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                        ExifInterface.ORIENTATION_ROTATE_90  -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                } ?: 0f
+
+                val mutableBitmap = if (rotation != 0f) {
+                    val matrix = android.graphics.Matrix().apply { postRotate(rotation) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                } else {
+                    bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                }
 
                 val mat = Mat()
                 Utils.bitmapToMat(mutableBitmap, mat)

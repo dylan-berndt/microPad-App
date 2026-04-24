@@ -39,6 +39,8 @@ data class LabeledImage(
  * @property sampleColors The extracted RGB colors from the sample's dye wells.
  * @property referenceColors The RGB colors from the corresponding reference's dye wells.
  * @property wellDistances The individual distances computed per dye well.
+ * ADDITION:
+ * @property wellClosestReferences The name of the reference that best matched each individual well (optional).
  */
 data class ClassificationResult(
     val closestReferenceName: String,
@@ -46,7 +48,23 @@ data class ClassificationResult(
     val wellNames: List<String>,
     val sampleColors: List<Scalar>,
     val referenceColors: List<Scalar>,
-    val wellDistances: List<Double>
+    val wellDistances: List<Double>,
+    //ADDITION
+    val wellClosestReferences: List<String> = emptyList()
+)
+
+/**
+ * Represents an entry in the analysis history.
+ */
+data class AnalysisHistoryEntry(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val fileName: String,
+    val summary: String,
+    val csvData: String,
+    val distanceMetric: String,
+    val colorMode: String,
+    val normalizationStrategy: String
 )
 
 fun greyscale(r: Double, g: Double, b: Double): Double {
@@ -124,12 +142,6 @@ class Sample(
                     val mean = vals.average()
                     val std = sqrt(vals.map { (it - mean) * (it - mean) }.average())
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
-                }
-
-                "Softmax" -> {
-                    val expVals = vals.map { kotlin.math.exp(it / 255.0) }
-                    val sumExp = expVals.sum()
-                    if (sumExp == 0.0) vals.map { 0.0 } else expVals.map { it / sumExp }
                 }
 
                 else -> vals
@@ -272,27 +284,46 @@ class SampleDataset(val samples: MutableList<Sample>) {
             val lines = input.bufferedReader().readLines()
             if (lines.isEmpty()) return
 
-            val header = lines[0].trimStart('\uFEFF').split(",")
-            val metadataColumns = 4
-            val calibrationColumns = 12
-            val colorColumns = header.drop(metadataColumns + calibrationColumns)
-            val dyeNames = colorColumns.filter { it.endsWith("_r") }.map { it.removeSuffix("_r") }
-            val numberOfDots = dyeNames.size
+            val firstLine = lines[0].trimStart('\uFEFF')
+            val header = firstLine.split(",")
+
+            val dyeNames = header.filter { it.endsWith("_r") && !it.startsWith("cal") }
+                                .map { it.removeSuffix("_r") }
 
             lines.drop(1).forEach { line ->
                 if (line.isBlank()) return@forEach
                 try {
                     val tokens = line.split(",")
-                    if (tokens.size < metadataColumns + calibrationColumns + numberOfDots * 3) return@forEach
-                    val refName = tokens[1].trim()
-                    val numCalPoints = calibrationColumns / 3
-                    val colors = tokens.drop(metadataColumns).chunked(3).take(numCalPoints + numberOfDots).map { chunk ->
-                        Scalar(chunk[0].trim().toDoubleOrNull() ?: 0.0, chunk[1].trim().toDoubleOrNull() ?: 0.0, chunk[2].trim().toDoubleOrNull() ?: 0.0)
-                    }.toMutableList()
+                    val rowMap = header.indices.associate { i -> header[i] to tokens.getOrNull(i) }
 
-                    val dots = colors.subList(numCalPoints, colors.size).map { Pair(MatOfPoint(), it) }.toMutableList()
-                    val sample = Sample(null, null, null, dots, type = "Reference", squares=colors.subList(0, numCalPoints), isImage = false)
-                    sample.names.clear(); sample.names.addAll(dyeNames)
+                    val refName = rowMap["reference_name"]?.trim() ?: ""
+
+                    val squares = mutableListOf<Scalar>()
+                    for (i in 0..3) {
+                        val r = rowMap["cal${i}_r"]?.toDoubleOrNull() ?: 0.0
+                        val g = rowMap["cal${i}_g"]?.toDoubleOrNull() ?: 0.0
+                        val b = rowMap["cal${i}_b"]?.toDoubleOrNull() ?: 0.0
+                        squares.add(Scalar(r, g, b))
+                    }
+
+                    val dots = mutableListOf<Pair<MatOfPoint, Scalar>>()
+                    val names = mutableListOf<String>()
+
+                    for (name in dyeNames) {
+                        val rStr = rowMap["${name}_r"]
+                        val gStr = rowMap["${name}_g"]
+                        val bStr = rowMap["${name}_b"]
+
+                        if (!rStr.isNullOrBlank() && !gStr.isNullOrBlank() && !bStr.isNullOrBlank()) {
+                            dots.add(Pair(MatOfPoint(), Scalar(rStr.toDoubleOrNull() ?: 0.0,
+                                                               gStr.toDoubleOrNull() ?: 0.0,
+                                                               bStr.toDoubleOrNull() ?: 0.0)))
+                            names.add(name)
+                        }
+                    }
+
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares = squares, isImage = false)
+                    sample.names.clear(); sample.names.addAll(names)
                     sample.referenceName = refName
                     samples.add(sample)
                     Log.d("CSV", "Sample added: ${sample.rgb.size} dots identified")
@@ -370,6 +401,9 @@ class DatasetModel : ViewModel() {
     var isSimulating by mutableStateOf(false)
     var narrationText by mutableStateOf("")
     var highlightedButtonId by mutableStateOf<String?>(null)
+
+    // History State
+    val analysisHistory = mutableStateListOf<AnalysisHistoryEntry>()
 
 
     /**
@@ -601,12 +635,92 @@ class DatasetModel : ViewModel() {
         }
     }
 
+    fun runPerColorClassification() {
+        val ref = referenceDataset ?: return
+        val new = newDataset ?: return
+
+        for (sample in new.samples) {
+            try {
+                sample.classificationResults.clear()
+
+                val wellNames = mutableListOf<String>()
+                val sampleColors = mutableListOf<Scalar>()
+                val referenceColors = mutableListOf<Scalar>()
+                val wellDistances = mutableListOf<Double>()
+                val wellClosestRefs = mutableListOf<String>()
+
+                val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+
+                sample.isSelected.forEachIndexed { dotIdx, isSelected ->
+                    if (isSelected) {
+                        val dotFeatures = normalizedSample[dotIdx]
+                        var bestWellDistance = Double.MAX_VALUE
+                        var bestWellRefName = "Unknown"
+                        var bestWellRefColor = Scalar(0.0, 0.0, 0.0)
+
+                        for (refSample in ref.samples) {
+                            val normalizedRef = refSample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                            val refDotIdx = refSample.names.indexOfFirst { it == sample.names[dotIdx] }
+                            if (refDotIdx != -1 && refDotIdx < normalizedRef.size) {
+                                val refFeatures = normalizedRef[refDotIdx]
+                                val distance = when (distanceMetric) {
+                                    "Euclidean" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) {
+                                            val diff = dotFeatures[i] - refFeatures[i]
+                                            sum += diff * diff
+                                        }
+                                        sqrt(sum)
+                                    }
+                                    "Manhattan" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) { sum += abs(dotFeatures[i] - refFeatures[i]) }
+                                        sum
+                                    }
+                                    else -> Double.MAX_VALUE
+                                }
+                                if (distance < bestWellDistance) {
+                                    bestWellDistance = distance
+                                    bestWellRefName = refSample.referenceName
+                                    bestWellRefColor = refSample.rgb[refDotIdx]
+                                }
+                            }
+                        }
+
+                        wellNames.add(sample.names[dotIdx])
+                        sampleColors.add(sample.rgb[dotIdx])
+                        referenceColors.add(bestWellRefColor)
+                        wellDistances.add(bestWellDistance)
+                        wellClosestRefs.add(bestWellRefName)
+                    }
+                }
+
+                sample.classificationResults.add(
+                    ClassificationResult(
+                        closestReferenceName = "Mixed / Per Well",
+                        totalDistance = wellDistances.sum(),
+                        wellNames = wellNames,
+                        sampleColors = sampleColors,
+                        referenceColors = referenceColors,
+                        wellDistances = wellDistances,
+                        wellClosestReferences = wellClosestRefs
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e("Classification", "Per color classification failed", e)
+            }
+        }
+    }
+
     fun runClassification() {
         val ref = referenceDataset
         val new = newDataset
         if (ref == null || new == null) return
-        comparisonMode = "Whole Card"
-        runWholeCardClassification()
+        if (comparisonMode == "Whole Card") {
+            runWholeCardClassification()
+        } else {
+            runPerColorClassification()
+        }
     }
 
     fun syncNames() {
@@ -627,31 +741,44 @@ class DatasetModel : ViewModel() {
         newDataset = null
         importedFileName = "data.csv"
         importedFileUri = null
-        comparisonMode = "Per Color"
+        comparisonMode = "Whole Card"
         savedNames.clear()
         lastIngestedRefUris = emptyList()
         lastIngestedSampleUris = emptyList()
         lastIngestedSelectionStrategy = ""
-        comparisonMode = "Whole Card"
+    }
+
+    fun saveToHistory() {
+        val dataset = newDataset ?: return
+        val summary = dataset.samples.joinToString("; ") { sample ->
+            val result = sample.classificationResults.firstOrNull()
+            "${sample.referenceName} -> ${result?.closestReferenceName ?: "N/A"}"
+        }
+        val csvData = toCsvString(includeHeader = true, datasetChoice = "combined")
+        analysisHistory.add(0, AnalysisHistoryEntry(
+            fileName = importedFileName,
+            summary = summary,
+            csvData = csvData,
+            distanceMetric = distanceMetric,
+            colorMode = colorMode,
+            normalizationStrategy = normalizationStrategy
+        ))
+    }
+
+    fun deleteHistoryEntry(entry: AnalysisHistoryEntry) {
+        analysisHistory.remove(entry)
     }
 
     fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
-        var table: SampleDataset? = null
-        if (datasetChoice == "sample") {
-            table = newDataset ?: return ""
-        }
-        else {
-            table = referenceDataset ?: return ""
-        }
+        val table = if (datasetChoice == "sample") newDataset else referenceDataset
+        if (table == null || table.samples.isEmpty()) return ""
 
-        val firstSample = table.samples.firstOrNull() ?: return ""
-        // Sort selected indices for consistent header and row column ordering
-        val selectedIndices = firstSample.isSelected.indices
-            .filter { firstSample.isSelected[it] }
-            .sortedBy { firstSample.names[it] }
+        // Calculate the union of all well names across all samples in the dataset, regardless of selection
+        val allWellNames = table.samples.flatMap { sample ->
+            sample.names.filter { it.isNotBlank() }
+        }.distinct().sorted()
 
-        val dyeHeaders = selectedIndices.flatMap { i ->
-            val name = firstSample.names[i]
+        val dyeHeaders = allWellNames.flatMap { name ->
             listOf("${name}_r", "${name}_g", "${name}_b")
         }
         val calHeaders = listOf(
@@ -673,16 +800,21 @@ class DatasetModel : ViewModel() {
                 listOf(it.`val`[0], it.`val`[1], it.`val`[2])
             }.map { it.toString() }
 
-            val rgbParts = selectedIndices.flatMap { index ->
-                val scalar = sample.rgb[index]
-                listOf(scalar.`val`[0], scalar.`val`[1], scalar.`val`[2])
-            }.map { it.toString() }
+            val rgbParts = allWellNames.flatMap { name ->
+                val index = sample.names.indexOf(name)
+                // Fill with RGB values if well exists, even if not selected
+                if (index != -1) {
+                    val scalar = sample.rgb[index]
+                    listOf(scalar.`val`[0].toString(), scalar.`val`[1].toString(), scalar.`val`[2].toString())
+                } else {
+                    listOf("", "", "")
+                }
+            }
 
             (meta + cal + rgbParts).joinToString(",")
         }
 
         val body = rows.joinToString("\n")
-
         return if (includeHeader) "$header\n$body" else body
     }
 }

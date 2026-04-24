@@ -3,6 +3,7 @@ package com.example.micropad.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
@@ -132,14 +133,21 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
     val whiteMask = Mat()
     Core.inRange(
         hsv,
-        Scalar(0.0, 0.0, 180.0),
-        Scalar(180.0, 40.0, 255.0),
+        Scalar(0.0, 0.0, 160.0),
+        Scalar(180.0, 50.0, 255.0),
         whiteMask
     )
 
+    val whiteRatio = Core.countNonZero(whiteMask).toDouble() / image.total()
+    if (whiteRatio > 0.5) {
+        hsv.release(); whiteMask.release()
+        Log.d("Pipeline", "Warping Skipped: Image is ${(whiteRatio * 100).toInt()}% white, returning full image")
+        return image
+    }
+
     if (log) saveMat(whiteMask, "card_white_mask.png", context)
 
-    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
     val closed = Mat()
     Imgproc.morphologyEx(whiteMask, closed, Imgproc.MORPH_CLOSE, kernel)
 
@@ -150,6 +158,12 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
     val best = contours
         .filter { Imgproc.contourArea(it) > image.total() * 0.10 }
         .maxByOrNull { Imgproc.contourArea(it) }
+
+    val area = Imgproc.contourArea(best)
+    if (area > image.total() * 0.80) {
+        Log.w("Pipeline", "Card region too large — likely background bleed, skipping crop")
+        return image  // return full image rather than a bad crop
+    }
 
     if (best == null) {
         Log.w("Pipeline", "Warping Failed: No card contour found")
@@ -705,7 +719,24 @@ suspend fun ingestImages(
                     AppErrorLogger.logError(context, "Ingest", "BitmapFactory returned null for URI: $uri")
                     return@async null
                 }
-                val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+
+                val rotation = context.contentResolver.openInputStream(uri)?.use { exifStream ->
+                    val exif = ExifInterface(exifStream)
+                    when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                        ExifInterface.ORIENTATION_ROTATE_90  -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                } ?: 0f
+
+                val mutableBitmap = if (rotation != 0f) {
+                    val matrix = android.graphics.Matrix().apply { postRotate(rotation) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                } else {
+                    bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                }
+
                 val mat = Mat()
                 Utils.bitmapToMat(mutableBitmap, mat)
                 Log.d("Pipeline", "Data Movement: Converted Android Bitmap to OpenCV Mat (${mat.cols()}x${mat.rows()})")

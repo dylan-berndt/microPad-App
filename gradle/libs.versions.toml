@@ -14,6 +14,7 @@ navigationCompose = "2.9.7"
 mockito = "5.11.0"
 materialIconsExtended = "1.7.8"
 foundationLayout = "1.10.6"
+exifinterface = "1.3.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -41,6 +42,7 @@ androidx-compose-runtime = { group = "androidx.compose.runtime", name = "runtime
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -6,8 +6,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.viewModels
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,23 +15,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -51,19 +46,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.navigation.NavController
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.micropad.data.AppErrorLogger
-import com.example.micropad.data.CsvImportButton
 import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.ErrorHandler
 import com.example.micropad.ui.AnalysisConfigScreen
 import com.example.micropad.ui.AnalysisScreen
 import com.example.micropad.ui.GalleryReferenceFlow
+import com.example.micropad.ui.HistoryScreen
 import com.example.micropad.ui.LabelingScreen
 import com.example.micropad.ui.SimulationOverlay
 import com.example.micropad.ui.WellNamingScreen
@@ -73,47 +68,35 @@ import com.example.micropad.ui.theme.MicroPadTheme
 import kotlinx.coroutines.launch
 import org.opencv.android.OpenCVLoader
 
-/**
- * Creates the app and sets up the navigation.
- *
- * @param sharedViewModel The view model for the app.
- * @receiver The Composable calling this function.
- * @return Unit
- */
 class MainActivity : ComponentActivity() {
-    private val sharedViewModel: DatasetModel by viewModels()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         ErrorHandler.safeExecute(this) {
-                if (!OpenCVLoader.initLocal()) {
-                    throw Exception("OpenCV failed to load")
-                }
+            if (!OpenCVLoader.initDebug()) {
+                android.util.Log.e("OpenCV", "Unable to load OpenCV!")
+            } else {
+                android.util.Log.d("OpenCV", "OpenCV loaded successfully.")
             }
+        }
 
         enableEdgeToEdge()
         setContent {
             MicroPadTheme {
-                MicroPadApp(sharedViewModel)
+                val viewModel: DatasetModel = viewModel()
+                val navController = rememberNavController()
+                MainContent(viewModel, navController)
             }
         }
     }
 }
 
-/**
- * Sets up the navigation for the app.
- *
- * @param viewModel The view model for the app.
- * @receiver The Composable calling this function.
- * @return Unit
- */
 @Composable
-fun MicroPadApp(viewModel: DatasetModel) {
-    val navController = rememberNavController()
+fun MainContent(viewModel: DatasetModel, navController: NavHostController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -128,19 +111,32 @@ fun MicroPadApp(viewModel: DatasetModel) {
                         Text("Cancel")
                     }
                 } else if (currentRoute != "analysis") {
-                    Button(
-                        onClick = {
-                            // Capture ROI names before simulation starts
-                            viewModel.syncNames()
-
-                            scope.launch {
-                                runNavigationSimulation(viewModel, navController)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.align(Alignment.Start)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Instructions")
+                        Button(
+                            onClick = {
+                                // Capture ROI names before simulation starts
+                                viewModel.syncNames()
+
+                                scope.launch {
+                                    ErrorHandler.safeExecute(context) {
+                                        runNavigationSimulation(viewModel, navController)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Instructions")
+                        }
+
+                        if (currentRoute == "home") {
+                            IconButton(onClick = { navController.navigate("history") }) {
+                                Icon(Icons.Default.History, contentDescription = "History")
+                            }
+                        }
                     }
                 }
             }
@@ -161,6 +157,9 @@ fun MicroPadApp(viewModel: DatasetModel) {
                     }
                     composable("labelingScreen") {
                         LabelingScreen(viewModel, navController)
+                    }
+                    composable("history") {
+                        HistoryScreen(viewModel, navController)
                     }
 
                     // Sub-flows for data acquisition
@@ -219,72 +218,73 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
     )
 }
 
-    @Composable
-    fun ErrorReportBanner() {
-        val context = LocalContext.current
-        var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
-        if (!showDialog) return
+@Composable
+fun ErrorReportBanner() {
+    val context = LocalContext.current
+    var showDialog by remember { mutableStateOf(AppErrorLogger.hasErrors(context)) }
+    if (!showDialog) return
 
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("Share system errors to improve the app?") },
-            text = {
-                Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val intent = AppErrorLogger.buildShareIntent(context)
-                    if (intent != null) {
-                        context.startActivity(Intent.createChooser(intent, "Share error log"))
-                    }
-                    AppErrorLogger.clearLog(context)
-                    showDialog = false
-                }) { Text("Share") }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    AppErrorLogger.clearLog(context)
-                    showDialog = false
-                }) { Text("Dismiss") }
+    AlertDialog(
+        onDismissRequest = { },
+        title = { Text("Share system errors to improve the app?") },
+        text = {
+            Text("Errors were recorded during this session. You can share them anonymously to help us fix issues. The file contains no personal data.")
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val intent = AppErrorLogger.buildShareIntent(context)
+                if (intent != null) {
+                    context.startActivity(Intent.createChooser(intent, "Share error log"))
+                }
+                AppErrorLogger.clearLog(context)
+            }) { Text("Share") }
+        },
+        dismissButton = {
+            TextButton(onClick = {
+                AppErrorLogger.clearLog(context)
+            }) { Text("Dismiss") }
+        }
+    )
+}
+
+@Composable
+fun FrontPage(navController: NavHostController, viewModel: DatasetModel) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            val hasData = viewModel.pendingReferences.isNotEmpty() ||
+                          viewModel.pendingSamples.isNotEmpty() ||
+                          viewModel.referenceDataset != null
+
+            val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
+                             viewModel.pendingSamples.isNotEmpty()
+
+            val canExportReference = viewModel.pendingReferences.isNotEmpty()
+
+            val openAlertDialog = remember {mutableStateOf(false)}
+
+            when {
+                openAlertDialog.value -> {
+                    ReferenceOnlyDialog(
+                        navigate = {navController.navigate("namingScreen")},
+                        onDismissRequest = { openAlertDialog.value = false })
+                }
             }
-        )
-    }
-    @Composable
-    fun FrontPage(navController: NavController, viewModel: DatasetModel) {
-        Scaffold(
-            modifier = Modifier.fillMaxSize(),
-            bottomBar = {
-                val hasData = viewModel.pendingReferences.isNotEmpty() ||
-                              viewModel.pendingSamples.isNotEmpty() ||
-                              viewModel.referenceDataset != null
 
-                val canProceed = (viewModel.referenceDataset != null || viewModel.pendingReferences.isNotEmpty()) &&
-                                 viewModel.pendingSamples.isNotEmpty()
-
-                val canExportReference = viewModel.pendingReferences.isNotEmpty()
-
-                val openAlertDialog = remember {mutableStateOf(false)}
-
-                when {
-                    openAlertDialog.value -> {
-                        ReferenceOnlyDialog(
-                            navigate = {navController.navigate("namingScreen")},
-                            onDismissRequest = { openAlertDialog.value = false })
+            Column {
+                if (hasData) {
+                    OutlinedButton(
+                        onClick = { viewModel.reset() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restart Data Upload")
                     }
                 }
-
-                Column {
-                    if (hasData) {
-                        OutlinedButton(
-                            onClick = { viewModel.reset() },
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Restart Data Upload")
-                        }
-                    }
 
                 Button(
                     onClick = {
@@ -322,7 +322,7 @@ fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit) {
  * @return Unit
  */
 @Composable
-fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavController) {
+fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavHostController) {
     val context = LocalContext.current
 
     Column(
@@ -342,7 +342,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
 
         // Card 1: References
         DataAcquisitionCard(
-            title = "1. Reference Data",
+            title = "Upload Reference Data",
             description = "Upload known baselines (H2O, Fe(III), Fe(II), Ni(II), etc.)",
             count = viewModel.pendingReferences.size + (if (viewModel.referenceDataset != null) 1 else 0),
             onGallery = { navController.navigate("gallery_ref") },
@@ -361,7 +361,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavCont
 
         // Card 2: Samples
         DataAcquisitionCard(
-            title = "2. Test Samples",
+            title = "Upload Test Samples",
             description = "Capture or upload the microPADs you want to analyze.",
             count = viewModel.pendingSamples.size,
             onGallery = { navController.navigate("gallery_sample") },
@@ -390,47 +390,60 @@ fun DataAcquisitionCard(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                if (count > 0) {
-                    Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                        Text("$count added", color = Color.White, modifier = Modifier.padding(4.dp))
-                    }
-                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
-
-            Text(text = description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "Items added: $count",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 OutlinedButton(
                     onClick = onGallery,
-                    modifier = Modifier.weight(1f).then(
-                        if (isGalleryHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
-                    )
+                    modifier = Modifier.weight(1f),
+                    colors = if (isGalleryHighlighted) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.outlinedButtonColors()
                 ) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Gallery", fontSize = 12.sp)
+                    Text("Gallery")
                 }
                 OutlinedButton(
                     onClick = onCamera,
-                    modifier = Modifier.weight(1f).then(
-                        if (isCameraHighlighted) Modifier.border(4.dp, Color.Yellow, RoundedCornerShape(8.dp)).padding(4.dp) else Modifier
-                    )
+                    modifier = Modifier.weight(1f),
+                    colors = if (isCameraHighlighted) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.outlinedButtonColors()
                 ) {
-                    Icon(Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Camera", fontSize = 12.sp)
+                    Text("Camera")
                 }
             }
-
-            if (showCsv && onCsv != null) {
-                CsvImportButton(onFileSelected = onCsv, isHighlighted = isCsvHighlighted)
+            if (showCsv) {
+                val csvLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.GetContent()
+                ) { uri -> onCsv?.invoke(uri) }
+                Button(
+                    onClick = { csvLauncher.launch("text/*") },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = if (isCsvHighlighted) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary) else ButtonDefaults.buttonColors()
+                ) {
+                    Text("Import CSV")
+                }
             }
         }
     }

@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.androidx.compose.material3.adaptive.navigation.suite)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.exifinterface)
 
     val activity_version = ""
     implementation("androidx.activity:activity:$activity_version")

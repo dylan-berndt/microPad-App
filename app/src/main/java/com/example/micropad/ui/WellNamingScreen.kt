@@ -319,15 +319,14 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
 
             val firstSample = combinedSamples.firstOrNull()
 
-            if (showManualRoiPicker && firstSample?.ordering != null) {
+            if (showManualRoiPicker && combinedSamples[selectedImage]?.ordering != null) {
                 ManualRoiPickerDialog(
-                    bitmap = firstSample.ordering!!,
+                    bitmap = combinedSamples[selectedImage].ordering!!,
                     onDismiss = { showManualRoiPicker = false },
                     onPointSelected = { point ->
-                        val radius = estimateWellRadius(firstSample.dots)
-                        combinedSamples.forEach { it.addManualDot(point, radius, viewModel.selectionStrategy) }
+                        val radius = estimateWellRadius(combinedSamples[selectedImage].dots)
+                        combinedSamples[selectedImage].addManualDot(point, radius, viewModel.selectionStrategy)
                         manualWellVersion++
-                        selectedImage = 0
                         focusedIndex = combinedSamples.firstOrNull()?.dots?.lastIndex
                         showManualRoiPicker = false
                     }
@@ -415,8 +414,8 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    OutlinedButton(onClick = { showManualRoiPicker = true; selectedImage = 0 }) {
-                        Text("Add missed ROI")
+                    OutlinedButton(onClick = { if (selectedImage != -1) showManualRoiPicker = true }) {
+                        Text(if (selectedImage == -1) "Select image to add missed ROI" else "Add missed ROI")
                     }
                 }
 

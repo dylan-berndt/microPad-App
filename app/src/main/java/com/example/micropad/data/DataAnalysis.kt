@@ -91,7 +91,7 @@ class Sample(
         val (contour, color) = extractManualDotAtPoint(source, center, radius, selectionStrategy)
         dots.add(Pair(contour, color))
         rgb.add(color)
-        greyscale.add(com.example.micropad.data.greyscale(color.`val`[0], color.`val`[1], color.`val`[2]))
+        greyscale.add(greyscale(color.`val`[0], color.`val`[1], color.`val`[2]))
         names.add("")
         isSelected.add(true)
         if (imageData != null) ordering = drawOrdering(imageData, dots, selectionStates = isSelected)
@@ -260,15 +260,6 @@ class SampleDataset(val samples: MutableList<Sample>) {
         if (sampleID in samples.indices) {
             samples[sampleID].reorder(from, to)
         }
-    }
-
-    /**
-     * Adds a manually selected ROI to every sample in the dataset using the same image-space
-     * coordinate and an estimated well radius. This works when all cards share the same layout.
-     */
-    fun addManualWellAt(center: Point, selectionStrategy: String) {
-        val radius = samples.firstOrNull()?.let { estimateWellRadius(it.dots) } ?: 18.0
-        samples.forEach { it.addManualDot(center, radius, selectionStrategy) }
     }
 
     /**

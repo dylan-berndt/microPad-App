@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import androidx.core.graphics.createBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import org.opencv.android.Utils
 import org.opencv.core.Core
@@ -287,105 +290,6 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
     Log.d("Pipeline", "Data Selected: Optimized set of 4 calibration squares identified")
     return shapes
 }
-
-
-/**
- * Clone a list of OpenCV points so later transformations do not mutate the stored reference.
- */
-fun clonePoints(points: List<Point>): List<Point> = points.map { Point(it.x, it.y) }
-
-/**
- * Build an aligned copy of the cropped card so the calibration strip sits in the same place as
- * it did in the first successfully detected image.
- *
- * The points are expected in left-to-right order:
- * black, cyan, yellow, magenta.
- *
- * This uses a similarity transform derived from the black and magenta squares so translation,
- * rotation, and small scale changes are corrected with OpenCV's built-in warpAffine.
- */
-fun alignCardToReferenceSquares(
-    image: Mat,
-    currentCenters: List<Point>,
-    referenceCenters: List<Point>,
-    context: Context,
-    log: Boolean
-): Mat {
-    if (currentCenters.size < 4 || referenceCenters.size < 4) {
-        return image.clone()
-    }
-
-    val current = currentCenters.sortedBy { it.x }
-    val reference = referenceCenters.sortedBy { it.x }
-
-    val currentBlack = current.first()
-    val currentMagenta = current.last()
-    val referenceBlack = reference.first()
-    val referenceMagenta = reference.last()
-
-    val currentDx = currentMagenta.x - currentBlack.x
-    val currentDy = currentMagenta.y - currentBlack.y
-    val referenceDx = referenceMagenta.x - referenceBlack.x
-    val referenceDy = referenceMagenta.y - referenceBlack.y
-
-    val currentDistance = kotlin.math.hypot(currentDx, currentDy)
-    val referenceDistance = kotlin.math.hypot(referenceDx, referenceDy)
-
-    if (currentDistance < 1e-6 || referenceDistance < 1e-6) {
-        return image.clone()
-    }
-
-    val rotation = atan2(referenceDy, referenceDx) - atan2(currentDy, currentDx)
-    val scale = referenceDistance / currentDistance
-
-    val cosTheta = cos(rotation) * scale
-    val sinTheta = sin(rotation) * scale
-
-    val tx = referenceBlack.x - (cosTheta * currentBlack.x - sinTheta * currentBlack.y)
-    val ty = referenceBlack.y - (sinTheta * currentBlack.x + cosTheta * currentBlack.y)
-
-    val affine = Mat(2, 3, CvType.CV_64F)
-    affine.put(0, 0, cosTheta, -sinTheta, tx)
-    affine.put(1, 0, sinTheta, cosTheta, ty)
-
-    val aligned = Mat()
-    Imgproc.warpAffine(
-        image,
-        aligned,
-        affine,
-        image.size(),
-        Imgproc.INTER_LINEAR,
-        Core.BORDER_CONSTANT,
-        Scalar(255.0, 255.0, 255.0, 255.0)
-    )
-
-    if (log) {
-        saveMat(aligned, "card_aligned.png", context)
-        val transformedCenters = current.map { p ->
-            Point(
-                cosTheta * p.x - sinTheta * p.y + tx,
-                sinTheta * p.x + cosTheta * p.y + ty
-            )
-        }
-        val meanError = transformedCenters.zip(reference).map { (a, b) ->
-            kotlin.math.hypot(a.x - b.x, a.y - b.y)
-        }.average()
-        Log.d(
-            "Pipeline",
-            "Alignment: black square moved to (${referenceBlack.x.format1()}, ${referenceBlack.y.format1()}); mean marker error = ${meanError.format2()} px"
-        )
-    }
-
-    affine.release()
-    return aligned
-}
-
-/**
- * Format helpers for debug logging.
- */
-private fun Double.format1(): String = String.format("%.1f", this)
-private fun Double.format2(): String = String.format("%.2f", this)
-
 
 /**
  * Extract the calibration colors from a calibration region.
@@ -828,7 +732,6 @@ fun preprocessImage(
  *
  * @return A SampleDataset containing the preprocessed images.
  */
-
 suspend fun ingestImages(
     addresses: List<Uri>,
     context: Context,
@@ -837,91 +740,38 @@ suspend fun ingestImages(
     selectionStrategy: String = "Mean"
 ): SampleDataset = coroutineScope {
     Log.d("Pipeline", "Pipeline Entry: Ingesting ${addresses.size} image(s) from system storage")
-
-    val preparedCards = mutableListOf<Pair<Uri, Mat>>()
-
-    addresses.forEach { uri ->
-        try {
-            val inputStream = context.contentResolver.openInputStream(uri)
+    val images = addresses.map { uri ->
+        async(Dispatchers.Default) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
                 ?: run {
                     AppErrorLogger.logError(context, "Ingest", "Could not open stream for URI: $uri")
-                    return@forEach
+                    return@async null
                 }
 
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream.close()
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
+                if (bitmap == null) {
+                    AppErrorLogger.logError(context, "Ingest", "BitmapFactory returned null for URI: $uri")
+                    return@async null
+                }
+                val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                val mat = Mat()
+                Utils.bitmapToMat(mutableBitmap, mat)
+                Log.d("Pipeline", "Data Movement: Converted Android Bitmap to OpenCV Mat (${mat.cols()}x${mat.rows()})")
 
-            if (bitmap == null) {
-                AppErrorLogger.logError(context, "Ingest", "BitmapFactory returned null for URI: $uri")
-                return@forEach
+                val image = Mat()
+                val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
+                Imgproc.resize(mat, image, Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
+                Log.d("Pipeline", "Transformation: Image Resized by factor ${"%.2f".format(ratio)}")
+
+                val cropped = findAndWarpCard(image, context, log) ?: image
+                preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
+            } catch (e: Exception) {
+                AppErrorLogger.logError(context, "Ingest", "Failed processing URI: $uri", e)
+                null
             }
-
-            val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            val mat = Mat()
-            Utils.bitmapToMat(mutableBitmap, mat)
-            Log.d("Pipeline", "Data Movement: Converted Android Bitmap to OpenCV Mat (${mat.cols()}x${mat.rows()})")
-
-            val image = Mat()
-            val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
-            Imgproc.resize(mat, image, Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
-            Log.d("Pipeline", "Transformation: Image Resized by factor ${"%.2f".format(ratio)}")
-
-            val cropped = (findAndWarpCard(image, context, log) ?: image).clone()
-            preparedCards.add(Pair(uri, cropped))
-
-            mat.release()
-            if (cropped !== image) {
-                image.release()
-            }
-        } catch (e: Exception) {
-            AppErrorLogger.logError(context, "Ingest", "Failed loading URI: $uri", e)
         }
-    }
-
-    var referenceMarkerCenters: List<Point>? = null
-    val processedSamples = mutableListOf<Sample>()
-
-    preparedCards.forEachIndexed { index, (uri, card) ->
-        try {
-            val contours = findContours(card, context, log)
-            val markerShapes = findCalibrationSquares(card, contours, context, log)
-            val currentMarkerCenters = markerShapes.map { Point(it.second.x, it.second.y) }
-
-            val alignedCard = when {
-                currentMarkerCenters.size == 4 && referenceMarkerCenters == null -> {
-                    referenceMarkerCenters = clonePoints(currentMarkerCenters.sortedBy { it.x })
-                    Log.d(
-                        "Pipeline",
-                        "Alignment reference locked from image ${index + 1}: black square is ${referenceMarkerCenters!!.first()}"
-                    )
-                    card.clone()
-                }
-                currentMarkerCenters.size == 4 && referenceMarkerCenters != null -> {
-                    alignCardToReferenceSquares(card, currentMarkerCenters, referenceMarkerCenters!!, context, log)
-                }
-                else -> {
-                    Log.w(
-                        "Pipeline",
-                        "Alignment skipped for image ${index + 1}: expected 4 color squares, found ${currentMarkerCenters.size}"
-                    )
-                    card.clone()
-                }
-            }
-
-            markerShapes.forEach { it.first.release() }
-            contours.forEach { it.release() }
-
-            preprocessImage(alignedCard, context, log, normalizationStrategy, selectionStrategy)
-                ?.let { processedSamples.add(it) }
-
-            alignedCard.takeIf { it !== card }?.let { /* sample keeps ownership */ }
-            card.release()
-        } catch (e: Exception) {
-            AppErrorLogger.logError(context, "Ingest", "Failed processing URI: $uri", e)
-            card.release()
-        }
-    }
-
-    SampleDataset(processedSamples)
+    }.awaitAll()
+    SampleDataset(images.filterNotNull().toMutableList())
 }
-

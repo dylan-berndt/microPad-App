@@ -1,89 +1,36 @@
 package com.example.micropad.ui
 
 import android.net.Uri
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.pager.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.R
-import com.example.micropad.data.CsvExportButton
-import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.SampleDataset
-import com.example.micropad.data.drawOrdering
-import com.example.micropad.data.estimateWellRadius
+import com.example.micropad.data.*
 import kotlinx.coroutines.launch
 import org.opencv.core.Point
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.foundation.gestures.detectTapGestures
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -108,53 +55,41 @@ fun stringToURIs(data: String): List<Uri> {
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
-
-    val texts = remember(numberOfDots, dataset.samples.getOrNull(0)?.names?.toList()) {
-        mutableStateListOf<String>().apply {
-            val existingNames = dataset.samples.getOrNull(0)?.names ?: emptyList()
-            repeat(numberOfDots) { i ->
-                add(existingNames.getOrNull(i) ?: "")
-            }
-        }
-    }
-    val selected = remember(numberOfDots, dataset.samples.getOrNull(0)?.isSelected?.toList()) {
-        mutableStateListOf<Boolean>().apply {
-            val existingSelected = dataset.samples.getOrNull(0)?.isSelected ?: emptyList()
-            repeat(numberOfDots) { i ->
-                add(existingSelected.getOrNull(i) ?: true)
-            }
-        }
-    }
+    val firstSample = dataset.samples.getOrNull(0)
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Selected", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
             Text("Region of Interest Name", style = MaterialTheme.typography.labelMedium)
         }
-        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(texts) { i, _ ->
-                val isSelected = if (i < selected.size) selected[i] else true
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = selected[i],
-                        onCheckedChange = { dataset.toggleWell(i, it); selected[i] = it },
-                        modifier = Modifier.size(48.dp)
-                    )
-                    OutlinedTextField(
-                        value = texts[i],
-                        onValueChange = { dataset.nameWell(i, it); texts[i] = it },
-                        label = { Text("ROI ${i + 1}") },
-                        placeholder = { Text("Enter a Label") },
-                        singleLine = true,
-                        enabled = isSelected,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusChanged { state ->
-                                if (state.isFocused) {
-                                    onFocusChange(i)
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items((0 until numberOfDots).toList()) { i ->
+                val name = firstSample?.names?.getOrNull(i) ?: ""
+                val isSelected = firstSample?.isSelected?.getOrNull(i) ?: true
+
+                Box {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { dataset.toggleWell(i, it) },
+                            modifier = Modifier.fillMaxWidth(0.2f)
+                        )
+                        TextField(
+                            value = name,
+                            onValueChange = { dataset.nameWell(i, it) },
+                            label = { Text(text = "ROI ${i + 1}") },
+                            placeholder = { Text("Enter a Label") },
+                            singleLine = true,
+                            enabled = isSelected,
+                            modifier = Modifier
+                                .fillMaxWidth(0.8f)
+                                .onFocusChanged { state ->
+                                    if (state.isFocused) {
+                                        onFocusChange(i)
+                                    }
                                 }
-                            }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -256,6 +191,28 @@ private fun ManualRoiPickerDialog(
     }
 }
 
+/**
+ * Display a screen for naming ROIs.
+ *
+ * @param addresses The list of image URIs to display.
+ * @param viewModel The view model for the app.
+ * @param navController The navigation controller for the app.
+ * @receiver The Composable calling this function.
+ * @return Unit
+ */
+@Composable
+fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
+    val csvData = viewModel.toCsvString(datasetChoice="reference")
+
+    AlertDialog(
+        title = { Text("Export Reference Data") },
+        text = { Text("You have only imported reference data. Move on to export a reference dataset.") },
+        onDismissRequest = onDismissRequest,
+        confirmButton = { CsvExportButton(type = "references", dataRows = csvData, navHome = navigate) },
+        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+    )
+}
+
 @Composable
 fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
@@ -277,14 +234,20 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                 title = { Text("Process & Name Wells", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )
         }
     ) { innerPadding ->
         if (viewModel.isLoading) {
-            Box(modifier = Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
                     Spacer(modifier = Modifier.height(16.dp))
@@ -297,24 +260,38 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
             viewModel.newDataset?.samples?.let { combinedSamples.addAll(it) }
 
             if (combinedSamples.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(innerPadding), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.fillMaxSize().padding(innerPadding),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text("No data to process", color = Color.Gray)
                 }
                 return@Scaffold
             }
 
-            if (openAlertDialog.value) {
-                val csvData = viewModel.toCsvString(datasetChoice="reference")
-                AlertDialog(
-                    title = { Text("Export Reference Data") },
-                    text = { Text("You have only imported reference data. Move on to export a reference dataset.") },
-                    onDismissRequest = { openAlertDialog.value = false },
-                    confirmButton = { CsvExportButton(type = "references", dataRows = csvData, navHome = {
-                        viewModel.reset()
-                        navController.navigate("home")
-                    }) },
-                    dismissButton = { TextButton(onClick = { openAlertDialog.value = false }) { Text("Return") } }
-                )
+            LaunchedEffect(combinedSamples) {
+                combinedSamples.forEachIndexed { sampleIdx, sample ->
+                    viewModel.savedNames.getOrNull(sampleIdx)?.let { names ->
+                        names.forEachIndexed { nameIdx, name ->
+                            if (nameIdx < sample.names.size) {
+                                sample.names[nameIdx] = name
+                            }
+                        }
+                    }
+                }
+            }
+
+            when {
+                openAlertDialog.value -> {
+                    ReferenceOnlyDialog(
+                        navigate = {
+                            viewModel.reset()
+                            navController.navigate("home")
+                        },
+                        onDismissRequest = { openAlertDialog.value = false },
+                        viewModel = viewModel
+                    )
+                }
             }
 
             val firstSample = combinedSamples.firstOrNull()
@@ -347,11 +324,26 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                                 .height(160.dp)
                                 .clickable { selectedImage = index },
                             elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 8.dp else 2.dp),
-                            border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
+                            border = if (isSelected) BorderStroke(
+                                2.dp,
+                                MaterialTheme.colorScheme.primary
+                            ) else null
                         ) {
                             Row(modifier = Modifier.fillMaxSize()) {
-                                val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList(), manualWellVersion) {
-                                    sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
+                                val displayBitmap = remember(
+                                    sample.ordering,
+                                    focusedIndex,
+                                    sample.isSelected.toList(),
+                                    manualWellVersion
+                                ) {
+                                    sample.ordering?.let {
+                                        drawOrdering(
+                                            sample.imageData ?: return@let it,
+                                            sample.dots,
+                                            focusedIndex,
+                                            sample.isSelected
+                                        )
+                                    }
                                 }
                                 if (displayBitmap != null) {
                                     Image(
@@ -388,9 +380,12 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                                                     )
                                                     val scalar = sample.dots[i].second
                                                     val dotColor = Color(
-                                                        red = scalar.`val`[0].toInt().coerceIn(0, 255),
-                                                        green = scalar.`val`[1].toInt().coerceIn(0, 255),
-                                                        blue = scalar.`val`[2].toInt().coerceIn(0, 255),
+                                                        red = scalar.`val`[0].toInt()
+                                                            .coerceIn(0, 255),
+                                                        green = scalar.`val`[1].toInt()
+                                                            .coerceIn(0, 255),
+                                                        blue = scalar.`val`[2].toInt()
+                                                            .coerceIn(0, 255),
                                                         alpha = 255
                                                     )
                                                     Box(
@@ -398,7 +393,11 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                                                             .size(12.dp)
                                                             .clip(CircleShape)
                                                             .background(dotColor)
-                                                            .border(0.5.dp, Color.LightGray, CircleShape)
+                                                            .border(
+                                                                0.5.dp,
+                                                                Color.LightGray,
+                                                                CircleShape
+                                                            )
                                                     )
                                                 }
                                             }
@@ -425,7 +424,8 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                     shadowElevation = 8.dp
                 ) {
                     Column {
-                        val tempDataset = remember(combinedSamples) { SampleDataset(combinedSamples) }
+                        val tempDataset =
+                            remember(combinedSamples) { SampleDataset(combinedSamples) }
                         val tabNames = listOf("ROI Ordering", "ROI Naming")
                         val pagerState = rememberPagerState(pageCount = { 2 })
                         val scope = rememberCoroutineScope()
@@ -435,7 +435,12 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                                 Tab(
                                     selected = pagerState.currentPage == index,
                                     onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                                    text = { Text(name, style = MaterialTheme.typography.titleSmall) }
+                                    text = {
+                                        Text(
+                                            name,
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -457,13 +462,22 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Dye Extraction: ${viewModel.selectionStrategy} ", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "Dye Extraction: ${viewModel.selectionStrategy} ",
+                                style = MaterialTheme.typography.bodySmall
+                            )
                             Icon(painterResource(R.drawable.dropdown), null, Modifier.size(12.dp))
-                            DropdownMenu(expanded = isDropDownExpanded, onDismissRequest = { isDropDownExpanded = false }) {
+                            DropdownMenu(
+                                expanded = isDropDownExpanded,
+                                onDismissRequest = { isDropDownExpanded = false }) {
                                 strategies.forEach { strategy ->
                                     DropdownMenuItem(
                                         text = { Text(strategy) },
-                                        onClick = { viewModel.selectionStrategy = strategy; isDropDownExpanded = false }
+                                        onClick = {
+                                            isDropDownExpanded = false
+                                            viewModel.selectionStrategy = strategy
+                                            viewModel.ingestAllPending(context) {}
+                                        }
                                     )
                                 }
                             }
@@ -471,13 +485,28 @@ fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
 
                         Button(
                             onClick = {
-                                if (viewModel.newDataset != null) navController.navigate("options")
-                                else openAlertDialog.value = true
+                                viewModel.savedNames.clear()
+                                combinedSamples.forEach { sample ->
+                                    viewModel.savedNames.add(sample.names.toList())
+                                }
+                                if (viewModel.newDataset != null) {
+                                    navController.navigate("options")
+                                } else {
+                                    openAlertDialog.value = true;
+                                }
                             },
                             enabled = viewModel.allSamplesValid(),
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
                         ) {
                             Text("Next")
+                        }
+
+                        if (!viewModel.allSamplesValid()) {
+                            Text(
+                                text = "Please assign all active labels before continuing",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
                         }
                     }
                 }

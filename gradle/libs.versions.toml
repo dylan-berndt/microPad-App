@@ -23,6 +23,7 @@ materialIconsExtended = "1.7.8"
 foundationLayout = "1.10.6"
 workRuntimeKtx = "2.11.2"
 googleServices = "4.4.4"
+exifinterface = "1.3.6"
 
 [libraries]
 androidx-activity = { module = "androidx.activity:activity", version.ref = "activityKtx" }
@@ -58,9 +59,10 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "kotlinxCoroutinesPlayServices" }
 mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
 androidx-compose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "foundationLayout" }
-opencv = { module = "org.opencv:opencv", version.ref = "opencv" }
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 google-firebase-storage = { group = "com.google.firebase", name = "firebase-storage" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

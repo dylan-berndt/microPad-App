@@ -28,16 +28,9 @@ object AppErrorLogger {
     private const val FILE_NAME = "app_error_log.json"
     private const val MAX_ENTRIES = 200
 
-    /**
-     * Record an error. Never throws — if logging itself fails, the failure is silently ignored
-     * so that the logger can never be the cause of a crash.
-     */
-    fun logError(
-        context: Context,
-        tag: String,
-        message: String,
-        e: Throwable? = null
-    ) {
+    fun getLogFile(context: Context): File = File(context.filesDir, FILE_NAME)
+
+    fun logError(context: Context, tag: String, message: String, e: Throwable? = null) {
         try {
             Log.e(tag, message)
             val file = File(context.filesDir, FILE_NAME)
@@ -89,6 +82,8 @@ object AppErrorLogger {
      * Returns null if no log file exists.
      */
     fun buildShareIntent(context: Context): Intent? {
+        val file = getLogFile(context)
+        if (!file.exists()) return null
         return try {
             val file = File(context.filesDir, FILE_NAME)
             if (!file.exists() || !hasErrors(context)) return null

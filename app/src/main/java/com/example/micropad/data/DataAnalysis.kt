@@ -1,24 +1,25 @@
 package com.example.micropad.data
 
-import java.util.Collections
-import android.graphics.Bitmap
-import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint
-import org.opencv.core.Scalar
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
+import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import java.util.Collections
 import kotlin.math.abs
 import kotlin.math.sqrt
-import android.util.Log
+import com.example.micropad.data.extractManualDotAtPoint
 import com.example.micropad.data.ingestImages
 import kotlin.collections.get
 import androidx.compose.runtime.getValue
@@ -108,6 +109,20 @@ class Sample(
 
     var ordering by mutableStateOf(initialOrdering)
         private set
+
+    /**
+     * Appends a manually selected ROI to this sample.
+     */
+    fun addManualDot(center: Point, radius: Double, selectionStrategy: String) {
+        val source = balanced ?: imageData ?: return
+        val (contour, color) = extractManualDotAtPoint(source, center, radius, selectionStrategy)
+        dots.add(Pair(contour, color))
+        rgb.add(color)
+        greyscale.add(greyscale(color.`val`[0], color.`val`[1], color.`val`[2]))
+        names.add("")
+        isSelected.add(true)
+        if (imageData != null) ordering = drawOrdering(imageData, dots, selectionStates = isSelected)
+    }
 
     /**
      * Normalizes the dot data based on the chosen strategy and mode.
@@ -372,6 +387,8 @@ class DatasetModel : ViewModel() {
     // Persistent Session State
     val pendingReferences = mutableStateListOf<LabeledImage>()
     val pendingSamples = mutableStateListOf<LabeledImage>()
+    val referenceImageUris = mutableStateListOf<Uri>()
+    val sampleImageUris = mutableStateListOf<Uri>()
 
     // Temporary storage for labeling flow
     var temporaryUris by mutableStateOf<List<Uri>>(emptyList())
@@ -744,6 +761,8 @@ class DatasetModel : ViewModel() {
     fun reset() {
         pendingReferences.clear()
         pendingSamples.clear()
+        referenceImageUris.clear()
+        sampleImageUris.clear()
         temporaryUris = emptyList()
         referenceDataset = null
         newDataset = null

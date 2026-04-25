@@ -26,6 +26,7 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -298,7 +299,6 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
     Log.d("Pipeline", "Data Selected: Optimized set of 4 calibration squares identified")
     return shapes
 }
-
 
 /**
  * Extract the calibration colors from a calibration region.
@@ -666,6 +666,55 @@ fun findDots(
         AppErrorLogger.logError(context, "ImagePipeline", "findDots failed", e)
         mutableListOf()
     }
+}
+
+
+/**
+ * Build a circular contour around a center point. Useful for manually added ROIs.
+ *
+ * @param center Center of the ROI in image coordinates.
+ * @param radius Radius in pixels.
+ * @param numPoints Number of vertices used to approximate the circle.
+ * @return MatOfPoint contour approximating the circle.
+ */
+fun createCircularContour(center: Point, radius: Double, numPoints: Int = 36): MatOfPoint {
+    val points = (0 until numPoints).map { i ->
+        val theta = 2.0 * PI * i / numPoints
+        Point(
+            center.x + radius * kotlin.math.cos(theta),
+            center.y + radius * kotlin.math.sin(theta)
+        )
+    }
+    return MatOfPoint(*points.toTypedArray())
+}
+
+/**
+ * Estimate a reasonable ROI radius from already detected wells.
+ */
+fun estimateWellRadius(dots: List<Pair<MatOfPoint, Scalar>>, fallback: Double = 18.0): Double {
+    if (dots.isEmpty()) return fallback
+    val radii = dots.map { sqrt(Imgproc.contourArea(it.first) / Math.PI) }.filter { it.isFinite() && it > 0 }
+    if (radii.isEmpty()) return fallback
+    return radii.sorted()[radii.size / 2]
+}
+
+/**
+ * Extract a dye color from a manually selected image location by reusing the same color extraction
+ * strategy as automatically detected wells.
+ */
+fun extractManualDotAtPoint(
+    image: Mat,
+    center: Point,
+    radius: Double,
+    selectionStrategy: String,
+    shrink: Float = 0.85f
+): Pair<MatOfPoint, Scalar> {
+    val baseContour = createCircularContour(center, radius)
+    val sampleContour = shrinkContour(baseContour, shrink)
+    val extractedData = extractContour(image, sampleContour)
+    val dataPoint = extractDyeColor(extractedData, selectionStrategy)
+    extractedData.release()
+    return Pair(sampleContour, dataPoint)
 }
 
 // Colors used on dye sheet, arranged in BGR ordering

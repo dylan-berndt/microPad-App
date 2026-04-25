@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -76,6 +77,15 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.compose.runtime)
     implementation(libs.androidx.navigation.compose)
+
+    // Cloud
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.google.firebase.storage)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.documentfile)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.play.services.auth)
+
 
     // Testing
     testImplementation(libs.junit)

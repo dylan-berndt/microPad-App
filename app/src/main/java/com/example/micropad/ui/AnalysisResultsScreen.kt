@@ -27,6 +27,8 @@ import com.example.micropad.data.DatasetModel
 import com.example.micropad.data.writeToCsv
 import org.opencv.core.Scalar
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.platform.testTag
+
 /**
  * Display the results of a classification run.
  *
@@ -117,7 +119,8 @@ fun AnalysisScreen(viewModel: DatasetModel, navController: NavController) {
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 16.dp)
+                    .testTag("analysisList"),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {

@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import org.opencv.core.Point
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.platform.testTag
 
 /**
  * Convert a list of URIs to a comma-separated string.
@@ -62,7 +63,7 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
             Text("Selected", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
             Text("Region of Interest Name", style = MaterialTheme.typography.labelMedium)
         }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize().testTag("roiList")) {
             items((0 until numberOfDots).toList()) { i ->
                 val name = firstSample?.names?.getOrNull(i) ?: ""
                 val isSelected = firstSample?.isSelected?.getOrNull(i) ?: true

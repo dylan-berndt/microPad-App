@@ -438,7 +438,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavHost
         // Card 1: References
         DataAcquisitionCard(
             title = "Upload Reference Data",
-            description = "Upload known baselines (H2O, Fe(III), Fe(II), Ni(II), etc.)",
+            description = "Capture or upload the photos of reference microPADs. Otherwise, import a reference file (CSV).",
             count = viewModel.pendingReferences.size + (if (viewModel.referenceDataset != null) 1 else 0),
             onGallery = { navController.navigate("gallery_ref") },
             onCamera = { navController.navigate("camera_ref") },
@@ -457,7 +457,7 @@ fun HomePage(modifier: Modifier, viewModel: DatasetModel, navController: NavHost
         // Card 2: Samples
         DataAcquisitionCard(
             title = "Upload Test Samples",
-            description = "Capture or upload the microPADs you want to analyze.",
+            description = "Capture or upload the photos of microPADs for test samples.",
             count = viewModel.pendingSamples.size,
             onGallery = { navController.navigate("gallery_sample") },
             onCamera = { navController.navigate("camera_sample") },

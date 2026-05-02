@@ -1,44 +1,26 @@
 {
   "project_info": {
-    "project_number": "950538566830",
-    "project_id": "micropad-analysis",
-    "storage_bucket": "micropad-analysis.firebasestorage.app"
+    "project_number": "833649658390",
+    "project_id": "micropad-c8046",
+    "storage_bucket": "micropad-c8046.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:950538566830:android:b375532e3e9c33dfdf013f",
+        "mobilesdk_app_id": "1:833649658390:android:98beb652da621ca9738337",
         "android_client_info": {
           "package_name": "com.example.micropad"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "950538566830-mknhp13s0a8hi7jr66m5uc24fl19drhr.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.micropad",
-            "certificate_hash": "affcaf94e26b52607f49ba383129ff757b9f2632"
-          }
-        },
-        {
-          "client_id": "950538566830-dp3jgcb58gdhd8pqtdn0824o2okqsin8.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAuucWh0okHFWomb5mwVDD-uaf8QODmWSc"
+          "current_key": "AIzaSyBc7CLrzNzVBTetzer30pv27ffLJAPTNAg"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "950538566830-dp3jgcb58gdhd8pqtdn0824o2okqsin8.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }

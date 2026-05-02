@@ -33,6 +33,16 @@ object AppErrorLogger {
     fun logError(context: Context, tag: String, message: String, e: Throwable? = null) {
         try {
             Log.e(tag, message)
+
+            com.google.firebase.crashlytics.FirebaseCrashlytics.getInstance().apply {
+                setCustomKey("tag", tag)
+                setCustomKey("appVersion", appVersion(context))
+                if (e != null) {
+                    recordException(e)
+                } else {
+                    recordException(RuntimeException("$tag: $message"))
+                }
+            }
             val file = File(context.filesDir, FILE_NAME)
             val array: JSONArray = if (file.exists()) {
                 try { JSONArray(file.readText()) } catch (_: Exception) { JSONArray() }

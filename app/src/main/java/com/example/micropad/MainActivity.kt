@@ -154,6 +154,7 @@ class MainActivity : ComponentActivity() {
             MicroPadTheme {
                 val viewModel: DatasetModel = viewModel()
                 val navController = rememberNavController()
+                CrashlyticsConsentDialog()
                 MainContent(viewModel, navController)
             }
         }

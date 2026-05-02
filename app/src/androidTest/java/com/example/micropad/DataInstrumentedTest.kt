@@ -161,6 +161,25 @@ class DataInstrumentedTest {
     }
 
     @Test
+    fun noMatch_isDisplayed() {
+        openAndLabelImages()
+
+        composeTestRule.onNodeWithText("Manhattan").performClick()
+        composeTestRule.onNodeWithText("Run Classification & View Results").performClick()
+
+        for (i in 1..5) {
+            composeTestRule.onNodeWithTag("analysisList").performScrollToNode(hasText("Sample $i")).assertExists()
+        }
+
+        composeTestRule.onNodeWithTag("analysisList")
+            .performScrollToNode(hasText("Sample 5"))
+
+        composeTestRule.onNode(
+            hasText("No Match") and hasAnySibling(hasText("Sample 5"))
+        ).assertExists()
+    }
+
+    @Test
     fun bestEstimate_isDisplayed() {
         openAndLabelImages()
 

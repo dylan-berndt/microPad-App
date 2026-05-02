@@ -1,9 +1,15 @@
 package com.example.micropad
 
 import android.net.Uri
-import android.os.Environment
-import androidx.compose.ui.test.*
+import androidx.compose.ui.test.hasAnySibling
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
@@ -155,7 +161,7 @@ class DataInstrumentedTest {
     }
 
     @Test
-    fun noMatch_isDisplayed() {
+    fun bestEstimate_isDisplayed() {
         openAndLabelImages()
 
         composeTestRule.onNodeWithText("Manhattan").performClick()
@@ -168,8 +174,10 @@ class DataInstrumentedTest {
         composeTestRule.onNodeWithTag("analysisList")
             .performScrollToNode(hasText("Sample 5"))
 
+        // Requirement 4: System returns best estimate (closest reference) 
+        // instead of "No Match" or crashing.
         composeTestRule.onNode(
-            hasText("No Match") and hasAnySibling(hasText("Sample 5"))
+            hasText("Reference", substring = true) and hasAnySibling(hasText("Sample 5"))
         ).assertExists()
     }
 }

@@ -6,7 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
-import com.example.micropad.data.DatasetModel
+import com.example.micropad.data.viewmodel.DatasetModel
 import com.example.micropad.ui.MainContent
 import com.example.micropad.ui.theme.MicroPadTheme
 import org.junit.Rule

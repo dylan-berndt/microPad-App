@@ -1,6 +1,9 @@
 package com.example.micropad
 
 import com.example.micropad.data.*
+import com.example.micropad.data.model.Sample
+import com.example.micropad.data.model.SampleDataset
+import com.example.micropad.data.viewmodel.DatasetModel
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.opencv.core.Scalar

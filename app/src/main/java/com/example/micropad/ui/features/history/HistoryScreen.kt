@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.history
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,8 +15,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.micropad.data.AnalysisHistoryEntry
-import com.example.micropad.data.DatasetModel
+import com.example.micropad.data.model.AnalysisHistoryEntry
+import com.example.micropad.data.viewmodel.DatasetModel
 import java.text.SimpleDateFormat
 import java.util.*
 

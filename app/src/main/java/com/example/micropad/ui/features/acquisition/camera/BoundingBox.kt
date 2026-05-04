@@ -1,4 +1,4 @@
-package com.example.micropad.ui.camera
+package com.example.micropad.ui.features.acquisition.camera
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box

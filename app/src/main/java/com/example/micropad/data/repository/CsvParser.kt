@@ -1,10 +1,10 @@
-package com.example.micropad
+package com.example.micropad.data.repository
 
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import com.example.micropad.data.AppErrorLogger
-import com.example.micropad.data.ErrorHandler
+import com.example.micropad.data.util.AppErrorLogger
+import com.example.micropad.data.util.ErrorHandler
 
 /**
  * A utility class for parsing and validating CSV files.

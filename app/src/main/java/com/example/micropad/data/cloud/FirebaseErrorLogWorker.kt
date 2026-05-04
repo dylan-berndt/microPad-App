@@ -3,7 +3,7 @@ package com.example.micropad.data.cloud
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.micropad.data.AppErrorLogger
+import com.example.micropad.data.util.AppErrorLogger
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 

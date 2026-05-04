@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.cloud
 
 import android.app.Activity
 import android.widget.Toast
@@ -38,8 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.example.micropad.data.AppErrorLogger
-import com.example.micropad.data.DatasetModel
+import com.example.micropad.data.util.AppErrorLogger
+import com.example.micropad.data.viewmodel.DatasetModel
 import com.example.micropad.data.cloud.CloudSyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

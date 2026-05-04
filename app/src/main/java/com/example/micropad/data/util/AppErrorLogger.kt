@@ -1,4 +1,4 @@
-package com.example.micropad.data
+package com.example.micropad.data.util
 
 import android.content.Context
 import android.content.Intent
@@ -35,7 +35,11 @@ object AppErrorLogger {
             Log.e(tag, message)
             val file = File(context.filesDir, FILE_NAME)
             val array: JSONArray = if (file.exists()) {
-                try { JSONArray(file.readText()) } catch (_: Exception) { JSONArray() }
+                try {
+                    JSONArray(file.readText())
+                } catch (_: Exception) {
+                    JSONArray()
+                }
             } else {
                 JSONArray()
             }

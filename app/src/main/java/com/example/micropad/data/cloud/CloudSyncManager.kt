@@ -13,8 +13,8 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import com.example.micropad.data.AppErrorLogger
-import com.example.micropad.data.DatasetModel
+import com.example.micropad.data.util.AppErrorLogger
+import com.example.micropad.data.viewmodel.DatasetModel
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException

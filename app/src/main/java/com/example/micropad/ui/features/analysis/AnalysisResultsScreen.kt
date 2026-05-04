@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.analysis
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,11 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.micropad.data.ClassificationResult
-import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.writeToCsv
+import com.example.micropad.data.viewmodel.DatasetModel
+import com.example.micropad.data.repository.writeToCsv
 import org.opencv.core.Scalar
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.platform.testTag
 
 /**

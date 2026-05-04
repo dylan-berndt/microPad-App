@@ -3,7 +3,7 @@ package com.example.micropad
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
-import com.example.micropad.data.writeToCsv
+import com.example.micropad.data.repository.writeToCsv
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before

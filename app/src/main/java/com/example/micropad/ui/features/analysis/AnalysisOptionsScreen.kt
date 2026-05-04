@@ -1,7 +1,8 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.analysis
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,11 +16,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.example.micropad.data.DatasetModel
+import com.example.micropad.data.viewmodel.DatasetModel
 
 /**
  * Display the configuration/options screen for the analysis.
@@ -79,7 +79,7 @@ fun AnalysisConfigScreen(viewModel: DatasetModel, navController: NavController) 
 
         // Normalization selector
         Text("Choose normalization method")
-        androidx.compose.foundation.layout.FlowRow(
+        FlowRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {

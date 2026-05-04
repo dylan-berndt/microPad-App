@@ -1,6 +1,7 @@
-package com.example.micropad.data
+package com.example.micropad.data.util
 
 import android.content.Context
+import com.example.micropad.data.util.AppErrorLogger
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -33,7 +34,7 @@ object ErrorHandler {
     }
 
     /**
-     * Suspend-safe variant. Re-throws [CancellationException] so coroutine cancellation
+     * Suspend-safe variant. Re-throws [kotlinx.coroutines.CancellationException] so coroutine cancellation
      * propagates correctly; all other exceptions are caught and logged.
      */
     suspend inline fun <T> safeSuspend(

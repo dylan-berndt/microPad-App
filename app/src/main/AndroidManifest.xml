@@ -17,7 +17,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MicroPad">
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.MicroPad">
             <intent-filter>

@@ -1,4 +1,4 @@
-package com.example.micropad.data
+package com.example.micropad.data.repository
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult

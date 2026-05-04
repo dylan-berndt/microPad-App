@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.simulation
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -22,9 +22,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.Sample
-import com.example.micropad.data.SampleDataset
+import com.example.micropad.data.viewmodel.DatasetModel
+import com.example.micropad.data.model.Sample
+import com.example.micropad.data.model.SampleDataset
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -155,7 +155,7 @@ suspend fun runNavigationSimulation(
         viewModel.highlightedButtonId = null
 
         // Mock Gallery Screen
-        withContext(kotlinx.coroutines.Dispatchers.Main) {
+        withContext(Dispatchers.Main) {
             navController.navigate("gallery_sample")
         }
         delay(300)
@@ -218,7 +218,7 @@ suspend fun runNavigationSimulation(
         step("Simulation complete. Returning you to where you were.", 5000)
 
     } finally {
-        withContext(kotlinx.coroutines.Dispatchers.Main) {
+        withContext(Dispatchers.Main) {
 
             viewModel.pendingReferences.clear()
             viewModel.pendingReferences.addAll(prevReferences)

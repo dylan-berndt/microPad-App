@@ -1,13 +1,31 @@
-package com.example.micropad.data
+/*
+ * Copyright 2025 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.example.micropad.data.analysis
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.ExifInterface
+import android.graphics.Matrix
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import androidx.core.graphics.createBitmap
+import com.example.micropad.data.util.AppErrorLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -30,10 +48,11 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
-import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
+import com.example.micropad.data.model.Sample
+import com.example.micropad.data.model.SampleDataset
 
 /**
  * Create a bit mapping from image and save to device storage.
@@ -156,7 +175,7 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
         .filter { Imgproc.contourArea(it) > image.total() * 0.10 }
         .maxByOrNull { Imgproc.contourArea(it) }
 
-    val area = Imgproc.contourArea(best)
+    val area = if (best != null) Imgproc.contourArea(best) else 0.0
     if (area > image.total() * 0.80) {
         Log.w("Pipeline", "Card region too large — likely background bleed, skipping crop")
         return image  // return full image rather than a bad crop
@@ -378,7 +397,7 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
         channels.forEach { it.release() }
         balanced
     } catch (e: Exception) {
-        android.util.Log.e("ImagePipeline", "rebalanceImage failed: ${e.message}", e)
+        Log.e("ImagePipeline", "rebalanceImage failed: ${e.message}", e)
         image
     }
 }
@@ -497,7 +516,7 @@ fun assignGridIndices(
             centers.filter { (_, q) -> q != p }
                 .minOfOrNull { (_, q) -> Math.hypot(q.x - p.x, q.y - p.y) } ?: 0.0
         }
-        val spacing = distances.average()
+        val spacing = if (distances.isNotEmpty()) distances.average() else 0.0
         if (spacing <= 0.0) return dots.mapIndexed { i, d -> Pair(d, Pair(0, i)) }
         val rowTolerance = spacing * 0.6
         val rows = mutableListOf<MutableList<Pair<Pair<MatOfPoint, Scalar>, Point>>>()
@@ -681,8 +700,8 @@ fun createCircularContour(center: Point, radius: Double, numPoints: Int = 36): M
     val points = (0 until numPoints).map { i ->
         val theta = 2.0 * PI * i / numPoints
         Point(
-            center.x + radius * kotlin.math.cos(theta),
-            center.y + radius * kotlin.math.sin(theta)
+            center.x + radius * cos(theta),
+            center.y + radius * sin(theta)
         )
     }
     return MatOfPoint(*points.toTypedArray())
@@ -755,10 +774,6 @@ fun preprocessImage(
             AppErrorLogger.logError(context, "ImagePipeline", "No wells detected — skipping sample")
             return null
         }
-        var balanced = image
-//        if (normalizationStrategy == "Regression" && colors.size == 4) {
-//            balanced = rebalanceImage(image, colors, expectedColors)
-//        }
 
         val orderingImage = drawOrdering(image, dots)
         Sample(image, image, orderingImage, dots, squares = colors)
@@ -827,7 +842,7 @@ suspend fun ingestImages(
                 } ?: 0f
 
                 val mutableBitmap = if (rotation != 0f) {
-                    val matrix = android.graphics.Matrix().apply { postRotate(rotation) }
+                    val matrix = Matrix().apply { postRotate(rotation) }
                     Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
                 } else {
                     bitmap.copy(Bitmap.Config.ARGB_8888, true)

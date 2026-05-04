@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.acquisition
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult

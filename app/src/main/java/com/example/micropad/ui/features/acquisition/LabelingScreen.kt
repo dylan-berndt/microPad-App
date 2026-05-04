@@ -1,4 +1,4 @@
-package com.example.micropad.ui
+package com.example.micropad.ui.features.acquisition
 
 import android.util.Log
 import androidx.compose.foundation.layout.*
@@ -10,8 +10,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
-import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.LabeledImage
+import com.example.micropad.data.viewmodel.DatasetModel
+import com.example.micropad.data.model.LabeledImage
 
 
 /**

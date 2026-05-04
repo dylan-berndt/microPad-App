@@ -1,4 +1,4 @@
-package com.example.micropad.ui.camera
+package com.example.micropad.ui.features.acquisition.camera
 
 import android.Manifest
 import android.app.Activity
@@ -38,7 +38,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
-import com.example.micropad.data.ErrorHandler
+import com.example.micropad.data.util.ErrorHandler
 import java.io.File
 
 /**

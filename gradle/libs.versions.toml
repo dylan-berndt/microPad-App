@@ -1,4 +1,5 @@
 [versions]
+crashlytics-plugin = "3.0.7"
 activityKtx = "1.8.0"
 agp = "9.0.0"
 coilNetworkOkhttp = "3.4.0"
@@ -21,11 +22,15 @@ navigationCompose = "2.9.7"
 mockito = "5.11.0"
 materialIconsExtended = "1.7.8"
 foundationLayout = "1.10.6"
+uiautomator = "2.3.0"
 workRuntimeKtx = "2.11.2"
 googleServices = "4.4.4"
 exifinterface = "1.3.6"
 
 [libraries]
+androidx-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
 androidx-activity = { module = "androidx.activity:activity", version.ref = "activityKtx" }
 androidx-activity-ktx = { module = "androidx.activity:activity-ktx", version.ref = "activityKtx" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -68,3 +73,4 @@ play-services-auth = { module = "com.google.android.gms:play-services-auth", ver
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlytics-plugin" }

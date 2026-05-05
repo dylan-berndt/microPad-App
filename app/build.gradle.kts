@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 android {
@@ -39,6 +40,19 @@ android {
     buildFeatures {
         compose = true
         viewBinding = true
+    }
+
+    packaging {
+        jniLibs {
+            // Required for 16KB page size support on Android 15+ 
+            // when using non-aligned native libraries like OpenCV
+            useLegacyPackaging = true
+        }
+    }
+
+    testOptions {
+        // Speeds up instrumented tests by disabling animations automatically
+        animationsDisabled = true
     }
 }
 
@@ -81,6 +95,8 @@ dependencies {
     // Cloud
     implementation(platform(libs.firebase.bom))
     implementation(libs.google.firebase.storage)
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.analytics)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.coroutines.play.services)
@@ -92,6 +108,7 @@ dependencies {
     testImplementation(libs.mockito.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.uiautomator)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

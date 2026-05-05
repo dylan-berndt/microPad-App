@@ -1,4 +1,4 @@
-package com.example.micropad
+package com.example.micropad.data.util
 
 import android.content.Context
 import androidx.compose.material3.AlertDialog

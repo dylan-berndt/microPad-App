@@ -61,6 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.micropad.data.util.CrashlyticsConsentDialog
 import com.example.micropad.data.viewmodel.DatasetModel
 import com.example.micropad.data.cloud.CloudSyncManager
 import com.example.micropad.data.util.ErrorHandler
@@ -116,7 +117,7 @@ class MainActivity : ComponentActivity() {
             MicroPadTheme {
                 val viewModel: DatasetModel = viewModel()
                 val navController = rememberNavController()
-                /*CrashlyticsConsentDialog()*/
+                CrashlyticsConsentDialog()
                 MainContent(viewModel, navController)
             }
         }

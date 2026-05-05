@@ -38,8 +38,11 @@ class ReliabilityIntegrationTest {
             }
             // Warm up OpenCV to ensure subsequent timing is accurate
             val warmUp = Mat.zeros(100, 100, CvType.CV_8UC3)
-            preprocessImage(warmUp, context, false, "None", "Include Squares")
-            isWarm = true
+            try {
+                preprocessImage(warmUp, context, false, "None", "Include Squares")
+            } finally {
+                warmUp.release()
+            }
         }
     }
 
@@ -52,18 +55,28 @@ class ReliabilityIntegrationTest {
         val largeDataRow = "S1,Test,Euclidean,0.5," + List(18) { "128" }.joinToString(",")
         // Use a real file in cache to ensure writable Uri
         val testFile = File(context.cacheDir, "test_export.csv")
+            if (testFile.exists()) testFile.delete()
+
         val dummyUri = android.net.Uri.fromFile(testFile)
 
         val timeTaken = measureTimeMillis {
-            try {
-                writeToCsv(largeDataRow, "samples", dummyUri, context)
-            } catch (e: Exception) {
-                // In some test environments, File Uri might still fail in ContentResolver
-            }
+            writeToCsv(largeDataRow, "samples", dummyUri, context)
         }
 
         assertTrue("CSV export took too long: ${timeTaken}ms", timeTaken < 3000)
+        assertTrue("CSV export did not create the output file", testFile.exists())
+        assertTrue("CSV export wrote an empty file", testFile.length() > 0)
+
+        val content = testFile.readText()
+        assertTrue("CSV export output should not be blank", content.isNotBlank())
+        assertTrue("CSV export did not contain the written data row", content.contains(largeDataRow))
+        val nonBlankLines = content.lines().filter { it.isNotBlank() }
+        assertTrue(
+            "CSV export should contain at least a header and one data row",
+            nonBlankLines.size >= 2
+        )
     }
+
 
     /**
      * Requirement 2: Micropad orientation validation.
@@ -72,7 +85,7 @@ class ReliabilityIntegrationTest {
     @Test
     fun testOrientationValidation() {
         val emptyMat = Mat.zeros(1000, 1000, CvType.CV_8UC3)
-        val result = preprocessImage(emptyMat, context, false, "None", "Include Squares")
+        val result = preprocessImage(emptyMat, context, false, "None", "Mean")
         assertNull("Image with no calibration squares should be rejected", result)
     }
 

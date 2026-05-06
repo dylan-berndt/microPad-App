@@ -5,7 +5,6 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,7 +38,7 @@ fun CsvExportButton(
             writeToCsv(dataRows, type, uri, context)
             navHome()
         }
-        // user cancelled picker — do nothing
+        // user canceled picker — do nothing
     }
 
     Button(onClick = {
@@ -116,7 +115,7 @@ fun writeToCsv(newData: String, type: String, filePath: Uri, context: Context) {
         }
 
         fun rowToCsv(header: List<String>, data: Map<String, String>): String {
-            return header.map { data[it] ?: "" }.joinToString(",")
+            return header.joinToString(",") { data[it] ?: "" }
         }
 
         val existingContentRows = if (existingHeaderLine != null) existingLines.drop(1) else existingLines

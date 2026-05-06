@@ -1,3 +1,8 @@
+/**
+ * This has a few unused sections that may want to be updated
+ * by Dr. Yoshimatsu later on if he wants this functionality.
+ */
+
 package com.example.micropad.data.cloud
 
 import android.app.Activity

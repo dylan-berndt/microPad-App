@@ -1,9 +1,27 @@
+/*
+ * Copyright 2025 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 package com.example.micropad.data
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -13,37 +31,90 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
 import org.opencv.core.Scalar
 import java.util.Collections
+import kotlin.math.abs
+import kotlin.math.sqrt
+import com.example.micropad.data.extractManualDotAtPoint
+import com.example.micropad.data.ingestImages
+import kotlin.collections.get
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.navigation.NavController
+import com.example.micropad.ui.runNavigationSimulation
+import kotlinx.coroutines.Dispatchers
 
 /**
- * A class for handling sample data captured from an image of a micropad.
- *
- * @property wellIndex The ID value for the dye well.
- * @property assignedLabel The text value used for that dye well.
- * @property closestReferenceName The nearest reference by computed distance.
- * @property distanceScore The computed distance between sample and reference.
+ * Data class to hold image and its semantic label.
  */
-data class ClassificationResult(
-    val wellIndex: Int,
-    val assignedLabel: String,
-    val closestReferenceName: String,
-    val distanceScore: Double
+data class LabeledImage(
+    val uri: Uri,
+    val label: String
 )
 
 /**
+ * A class for handling the results of a whole-card classification.
+ *
+ * @property closestReferenceName The name of the reference that best matched the sample.
+ * @property totalDistance The overall similarity distance (Euclidean or Manhattan) for the entire card.
+ * @property wellNames The names of the dye wells included in the classification.
+ * @property sampleColors The extracted RGB colors from the sample's dye wells.
+ * @property referenceColors The RGB colors from the corresponding reference's dye wells.
+ * @property wellDistances The individual distances computed per dye well.
+ * ADDITION:
+ * @property wellClosestReferences The name of the reference that best matched each individual well (optional).
+ */
+data class ClassificationResult(
+    val closestReferenceName: String,
+    val totalDistance: Double,
+    val wellNames: List<String>,
+    val sampleColors: List<Scalar>,
+    val referenceColors: List<Scalar>,
+    val wellDistances: List<Double>,
+    //ADDITION
+    val wellClosestReferences: List<String> = emptyList()
+)
+
+/**
+ * Represents an entry in the analysis history.
+ */
+data class AnalysisHistoryEntry(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val timestamp: Long = System.currentTimeMillis(),
+    val fileName: String,
+    val summary: String,
+    val csvData: String,
+    val distanceMetric: String,
+    val colorMode: String,
+    val normalizationStrategy: String
+)
+
+fun greyscale(r: Double, g: Double, b: Double): Double {
+    return 0.299 * r + 0.587 * g + 0.114 * b
+}
+
+/**
  * A sample to hold data on images.
- * 
+ *
  * @property imageData The original image data obtained for the sample.
  * @property balanced The rebalanced image used for dye well extraction.
  * @property initialOrdering An optional bitmap showing the initial dot ordering.
  * @property dots The identified dots, as a list of contour and color pairs.
  */
-class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitmap?, val dots: MutableList<Pair<MatOfPoint, Scalar>>) {
-    // Grey = 0.299R + 0.587G + 0.114B
-    var rgb: List<Scalar> = dots.map { it.second }
-    var greyscale: List<Double> =
-        rgb.map { 0.299 * it.`val`[0] + 0.587 * it.`val`[1] + 0.114 * it.`val`[2] }
+class Sample(
+    val imageData: Mat?,
+    val balanced: Mat?,
+    val initialOrdering: Bitmap?,
+    val dots: MutableList<Pair<MatOfPoint, Scalar>>,
+    val squares: MutableList<Scalar> = mutableListOf<Scalar>(),
+    var type: String = "Sample", // "Reference" or "Sample"
+    val isImage: Boolean = true
+) {
+    var rgb: MutableList<Scalar> = dots.map { it.second }.toMutableList()
+    var greyscale: MutableList<Double> =
+        rgb.map { greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }.toMutableList()
     var names = mutableStateListOf<String>().apply {
         repeat(rgb.size) { add("") }
     }
@@ -57,66 +128,89 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
         private set
 
     /**
+     * Appends a manually selected ROI to this sample.
+     */
+    fun addManualDot(center: Point, radius: Double, selectionStrategy: String) {
+        val source = balanced ?: imageData ?: return
+        val (contour, color) = extractManualDotAtPoint(source, center, radius, selectionStrategy)
+        dots.add(Pair(contour, color))
+        rgb.add(color)
+        greyscale.add(greyscale(color.`val`[0], color.`val`[1], color.`val`[2]))
+        names.add("")
+        isSelected.add(true)
+        if (imageData != null) ordering = drawOrdering(imageData, dots, selectionStates = isSelected)
+    }
+
+    /**
      * Normalizes the dot data based on the chosen strategy and mode.
      *
-     * @param strategy The user-selected normalization: MinMax, Z-Score, Regression, or none.
+     * @param strategy The user-selected normalization: MinMax, Z-Score, or none.
      * @param mode Normalize in RGB or grayscale.
      * @return List of DoubleArray, where each DoubleArray is the feature vector for a dot.
      */
-    fun getNormalizedData(strategy: String, mode: String): List<DoubleArray> {
+    fun getNormalizedData(strategy: String, mode: String, selection: String): List<DoubleArray> {
+        val greySquares = squares.map{ greyscale(it.`val`[0], it.`val`[1], it.`val`[2]) }
+
         val rawData = if (mode == "RGB") {
-            rgb.map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
+            // Append calibration square data to rgb data before normalizing
+            val data = if (selection == "Include Squares") rgb + squares else rgb
+            data.map { doubleArrayOf(it.`val`[0], it.`val`[1], it.`val`[2]) }
         } else {
-            greyscale.map { doubleArrayOf(it) }
+            // Create greyscale values from calibration squares and append
+            val data = if (selection == "Include Squares") greyscale + greySquares else greyscale
+            data.map { doubleArrayOf(it) }
         }
 
         if (strategy == "None" || rawData.isEmpty()) return rawData
 
         val numDots = rawData.size
         val numFeatures = rawData[0].size
-        val normalized = List(numDots) { DoubleArray(numFeatures) }
+        var normalized = List(numDots) { DoubleArray(numFeatures) }
 
         for (f in 0 until numFeatures) {
             val vals = rawData.map { it[f] }
             val transformed = when (strategy) {
                 "MinMax" -> {
-                    val min = vals.minOrNull() ?: 0.0
-                    val max = vals.maxOrNull() ?: 255.0
-                    if (max == min) vals.map { 0.0 } else vals.map { (it - min) / (max - min) }
+                    val minVal = vals.minOrNull() ?: 0.0
+                    val maxVal = vals.maxOrNull() ?: 255.0
+                    if (maxVal == minVal) vals.map { 0.0 } else vals.map { (it - minVal) / (maxVal - minVal) }
                 }
+
                 "Z-Score" -> {
                     val mean = vals.average()
-                    val std = Math.sqrt(vals.map { (it - mean) * (it - mean) }.average())
+                    val std = sqrt(vals.map { (it - mean) * (it - mean) }.average())
                     if (std == 0.0) vals.map { 0.0 } else vals.map { (it - mean) / std }
                 }
-                "Regression" -> {
-                    // Normalize by maximum possible pixel value
-                    vals.map { it / 255.0 }
-                }
+
                 else -> vals
             }
             for (i in transformed.indices) {
                 normalized[i][f] = transformed[i]
             }
         }
+
+        // Remove calibration square data from final color data
+        if (selection == "Include Squares") {
+            normalized = normalized.subList(0, normalized.size - squares.size)
+        }
+
         return normalized
     }
 
     /**
      * Ensure selected dye well labels are unique and filled.
-     * 
+     *
      * @return True if labels are valid, false otherwise.
      */
     fun validateLabels(): Boolean {
         val activeNames = names.filterIndexed { index, _ -> isSelected[index] }
         if (activeNames.any { it.isBlank() }) return false
-        if (activeNames.toSet().size != activeNames.size) return false
-        return true
+        return activeNames.toSet().size == activeNames.size
     }
 
     /**
      * Reassigns a label to a specific well index.
-     * 
+     *
      * @param index The index of the well.
      * @param newLabel The new label to assign.
      * @return True if reassignment was successful, false if label already exists elsewhere or index is invalid.
@@ -124,45 +218,44 @@ class Sample(val imageData: Mat?, val balanced: Mat?, val initialOrdering: Bitma
     fun reassignLabel(index: Int, newLabel: String): Boolean {
         if (index !in names.indices) return false
         if (names.contains(newLabel) && names[index] != newLabel) return false
-
         names[index] = newLabel
         return true
     }
 
     /**
      * Toggles whether a well is selected for analysis.
-     * 
+     *
      * @param index The index of the well.
      * @param selected Whether the well should be selected.
      */
     fun toggleSelection(index: Int, selected: Boolean) {
-        if (index in isSelected.indices) {
-            isSelected[index] = selected
-        }
+        if (index in isSelected.indices) isSelected[index] = selected
     }
 
     /**
      * Swaps the position of two dots in the sample.
-     * 
+     *
      * @param from The original index of the dot.
      * @param to The new index to swap with.
      */
     fun reorder(from: Int, to: Int) {
-        Collections.swap(dots, from, to)
-        Collections.swap(names, from, to)
-        Collections.swap(rgb, from, to)
-        Collections.swap(greyscale, from, to)
-        Collections.swap(isSelected, from, to)
-
-        if (imageData != null) {
-            ordering = drawOrdering(imageData, dots)
+        if (from !in dots.indices || to !in dots.indices) return
+        try {
+            Collections.swap(dots, from, to)
+            Collections.swap(names, from, to)
+            Collections.swap(rgb, from, to)
+            Collections.swap(greyscale, from, to)
+            Collections.swap(isSelected, from, to)
+            if (imageData != null) ordering = drawOrdering(imageData, dots)
+        } catch (e: Exception) {
+            // swap failed — state unchanged, logged silently
         }
     }
 }
 
 /**
  * A collection of samples, providing methods for bulk operations and dataset-wide analysis.
- * 
+ *
  * @property samples The list of samples in this dataset.
  */
 class SampleDataset(val samples: MutableList<Sample>) {
@@ -171,9 +264,11 @@ class SampleDataset(val samples: MutableList<Sample>) {
      */
     var selected = mutableListOf<Boolean>().apply {repeat(samples.size) { add(true) } }
 
+    fun isEmpty() = samples.isEmpty()
+
     /**
      * Updates the name of a well across all samples in the dataset.
-     * 
+     *
      * @param index The index of the well.
      * @param name The new name for the well.
      * @return True if the rename was successful for all samples.
@@ -188,7 +283,7 @@ class SampleDataset(val samples: MutableList<Sample>) {
 
     /**
      * Toggles the selection status of a specific well index across all samples.
-     * 
+     *
      * @param index The index of the well.
      * @param selected The new selection status.
      */
@@ -200,80 +295,92 @@ class SampleDataset(val samples: MutableList<Sample>) {
 
     /**
      * Triggers a reorder operation on a specific sample.
-     * 
+     *
      * @param sampleID The index of the sample in the dataset.
      * @param from The starting index of the dot.
      * @param to The target index for the swap.
      */
     fun reorderSample(sampleID: Int, from: Int, to: Int) {
-        samples[sampleID].reorder(from, to)
+        if (sampleID in samples.indices) {
+            samples[sampleID].reorder(from, to)
+        }
     }
 
     /**
      * Populates the dataset by parsing a CSV file.
-     * 
+     *
      * @param uri The URI of the CSV file.
      * @param context The Android context for content resolution.
      */
     fun fromCSV(uri: Uri, context: Context) {
-        val input = context.contentResolver.openInputStream(uri) ?: return
-        samples.clear()
-
-        val lines = input.bufferedReader().readLines()
-        if (lines.isEmpty()) return
-
-        val header = lines[0].trimStart('\uFEFF').split(",")
-        val metadataColumns = 4
-        val colorColumns = header.drop(metadataColumns)
-
-        val dyeNames = colorColumns
-            .filter { it.endsWith("_r") }
-            .map { it.removeSuffix("_r") }
-
-        val numberOfDots = dyeNames.size
-
-        lines.drop(1).forEach { line ->
-            if (line.isBlank()) return@forEach
-            try {
-                val tokens = line.split(",")
-                if (tokens.size < metadataColumns + numberOfDots * 3) return@forEach
-
-                val referenceName = tokens[1].trim()
-                val colorTokens = tokens.drop(metadataColumns)
-                val colors = colorTokens
-                    .chunked(3)
-                    .take(numberOfDots)
-                    .map { chunk ->
-                        Scalar(
-                            chunk[0].trim().toDoubleOrNull() ?: 0.0,
-                            chunk[1].trim().toDoubleOrNull() ?: 0.0,
-                            chunk[2].trim().toDoubleOrNull() ?: 0.0
-                        )
-                    }
-                    .toMutableList()
-
-                val dots = colors.map { Pair(MatOfPoint(), it) }.toMutableList()
-                val sample = Sample(null, null, null, dots)
-                sample.names.clear()
-                sample.names.addAll(dyeNames)
-                sample.rgb = colors
-                sample.referenceName = referenceName
-                samples.add(sample)
-            } catch (e: Exception) {
-                return@forEach
+        try {
+            val input = context.contentResolver.openInputStream(uri) ?: run {
+                AppErrorLogger.logError(context, "CSV", "fromCSV: could not open input stream for $uri")
+                return
             }
+            samples.clear()
+            val lines = input.bufferedReader().readLines()
+            if (lines.isEmpty()) return
+
+            val firstLine = lines[0].trimStart('\uFEFF')
+            val header = firstLine.split(",")
+
+            val dyeNames = header.filter { it.endsWith("_r") && !it.startsWith("cal") }
+                                .map { it.removeSuffix("_r") }
+
+            lines.drop(1).forEach { line ->
+                if (line.isBlank()) return@forEach
+                try {
+                    val tokens = line.split(",")
+                    val rowMap = header.indices.associate { i -> header[i] to tokens.getOrNull(i) }
+
+                    val refName = rowMap["reference_name"]?.trim() ?: ""
+
+                    val squares = mutableListOf<Scalar>()
+                    for (i in 0..3) {
+                        val r = rowMap["cal${i}_r"]?.toDoubleOrNull() ?: 0.0
+                        val g = rowMap["cal${i}_g"]?.toDoubleOrNull() ?: 0.0
+                        val b = rowMap["cal${i}_b"]?.toDoubleOrNull() ?: 0.0
+                        squares.add(Scalar(r, g, b))
+                    }
+
+                    val dots = mutableListOf<Pair<MatOfPoint, Scalar>>()
+                    val names = mutableListOf<String>()
+
+                    for (name in dyeNames) {
+                        val rStr = rowMap["${name}_r"]
+                        val gStr = rowMap["${name}_g"]
+                        val bStr = rowMap["${name}_b"]
+
+                        if (!rStr.isNullOrBlank() && !gStr.isNullOrBlank() && !bStr.isNullOrBlank()) {
+                            dots.add(Pair(MatOfPoint(), Scalar(rStr.toDoubleOrNull() ?: 0.0,
+                                                               gStr.toDoubleOrNull() ?: 0.0,
+                                                               bStr.toDoubleOrNull() ?: 0.0)))
+                            names.add(name)
+                        }
+                    }
+
+                    val sample = Sample(null, null, null, dots, type = "Reference", squares = squares, isImage = false)
+                    sample.names.clear(); sample.names.addAll(names)
+                    sample.referenceName = refName
+                    samples.add(sample)
+                    Log.d("CSV", "Sample added: ${sample.rgb.size} dots identified")
+
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "CSV", "fromCSV: failed to parse row: $line", e)
+                }
+
+                Log.d("CSV", "Samples imported: ${samples.size}")
+            }
+        } catch (e: Exception) {
+            AppErrorLogger.logError(context, "CSV", "fromCSV: unexpected failure", e)
+            samples.clear()
         }
     }
 
     /**
      * Performs classification on a target dataset using a reference dataset.
-     * 
-     * @param referenceData The dataset containing labeled reference samples.
-     * @param newData The dataset to be classified.
-     * @param distance The distance metric to use (e.g., "Euclidean", "Manhattan").
-     * @param mode The color mode for comparison ("RGB" or grayscale).
-     * @param normalizationStrategy The strategy for normalizing feature vectors.
-     * @return The classified dataset.
+     * This method is deprecated in favor of whole-card classification.
      */
     fun classify(
         referenceData: SampleDataset,
@@ -281,80 +388,8 @@ class SampleDataset(val samples: MutableList<Sample>) {
         distance: String = "Euclidean",
         mode: String = "RGB",
         normalizationStrategy: String = "None"
-    ): SampleDataset {
-        // Pre-calculate normalized data for all reference samples
-        val normalizedRefs = referenceData.samples.map { it.getNormalizedData(normalizationStrategy, mode) }
-
-        for (sample in newData.samples) {
-            sample.classificationResults.clear()
-            val normalizedSampleData = sample.getNormalizedData(normalizationStrategy, mode)
-
-            val newNames = sample.rgb.mapIndexed { dotIdx, _ ->
-                if (!sample.isSelected[dotIdx]) return@mapIndexed ""
-
-                val dotFeatures = normalizedSampleData[dotIdx]
-                
-                var bestScore = Double.MAX_VALUE
-                var bestRefName = ""
-                var bestRefSample: Sample? = null
-
-                for (r in referenceData.samples.indices) {
-                    val refSample = referenceData.samples[r]
-                    if (dotIdx >= normalizedRefs[r].size) continue
-                    
-                    val refFeatures = normalizedRefs[r][dotIdx]
-
-                    val score = when (distance) {
-                        "Euclidean" -> {
-                            var sum = 0.0
-                            for (i in dotFeatures.indices) {
-                                val diff = dotFeatures[i] - refFeatures[i]
-                                sum += diff * diff
-                            }
-                            Math.sqrt(sum)
-                        }
-                        "Manhattan" -> {
-                            var sum = 0.0
-                            for (i in dotFeatures.indices) {
-                                sum += Math.abs(dotFeatures[i] - refFeatures[i])
-                            }
-                            sum
-                        }
-                        else -> Double.MAX_VALUE
-                    }
-
-                    if (score < bestScore) {
-                        bestScore = score
-                        bestRefName = refSample.referenceName
-                        bestRefSample = refSample
-                    }
-                }
-
-                val label = bestRefSample?.names?.getOrNull(dotIdx) ?: ""
-                sample.classificationResults.add(
-                    ClassificationResult(
-                        wellIndex = dotIdx,
-                        assignedLabel = label,
-                        closestReferenceName = bestRefName,
-                        distanceScore = if (bestScore == Double.MAX_VALUE) -1.0 else bestScore
-                    )
-                )
-                label
-            }
-
-            sample.names.clear()
-            sample.names.addAll(newNames)
-        }
-        return newData
-    }
-
-    /**
-     * Checks if the dataset contains any samples.
-     * 
-     * @return True if the samples list is empty.
-     */
-    fun isEmpty(): Boolean {
-        return samples.isEmpty()
+    ) {
+        // No longer actively used in the main flow, which prefers runWholeCardClassification.
     }
 }
 
@@ -362,114 +397,171 @@ class SampleDataset(val samples: MutableList<Sample>) {
  * ViewModel for managing the state of datasets across different screens in the app.
  */
 class DatasetModel : ViewModel() {
-    /**
-     * The dataset currently being processed or edited.
-     */
-    var newDataset by mutableStateOf<SampleDataset?>(null)
-        private set
+
+    var simulationRunning by mutableStateOf(false)
+    var labelingTargetIsReference by mutableStateOf(true)
+
+    // Persistent Session State
+    val pendingReferences = mutableStateListOf<LabeledImage>()
+    val pendingSamples = mutableStateListOf<LabeledImage>()
+    val referenceImageUris = mutableStateListOf<Uri>()
+    val sampleImageUris = mutableStateListOf<Uri>()
+
+    // Temporary storage for labeling flow
+    var temporaryUris by mutableStateOf<List<Uri>>(emptyList())
 
     /**
      * The dataset used as a reference for classification.
      */
     var referenceDataset by mutableStateOf<SampleDataset?>(null)
-        private set
+    var newDataset by mutableStateOf<SampleDataset?>(null)
 
-    /**
-     * Indicates whether a long-running operation (like ingestion) is in progress.
-     */
     var isLoading by mutableStateOf(false)
         private set
 
+    var importedFileName by mutableStateOf("data.csv")
+    var importedFileUri by mutableStateOf<Uri?>(null)
+
+    var distanceMetric by mutableStateOf("Euclidean")
+    var colorMode by mutableStateOf("RGB")
+    var normalizationStrategy by mutableStateOf("None")
+    var normalizationSelection by mutableStateOf("Include Squares")
+    var comparisonMode by mutableStateOf("Whole Card")
+    var selectionStrategy by mutableStateOf("Mean")
+
+    // ROI names persistence across screen transitions/simulation
+    val savedNames = mutableStateListOf<List<String>>()
+
+    // Track last ingestion state to avoid redundant work
+    private var lastIngestedRefUris = emptyList<Uri>()
+    private var lastIngestedSampleUris = emptyList<Uri>()
+    private var lastIngestedSelectionStrategy = ""
+
+    var ingestSelectionStrategy by mutableStateOf("Mean")
+
+    // Simulation State
+    var isSimulating by mutableStateOf(false)
+    var narrationText by mutableStateOf("")
+    var highlightedButtonId by mutableStateOf<String?>(null)
+
+    // History State
+    val analysisHistory = mutableStateListOf<AnalysisHistoryEntry>()
+
+
     /**
-     * Ingests a list of image URIs to create a new dataset.
-     * 
-     * @param uris List of image URIs to process.
-     * @param context Android context for image processing.
-     * @param selectionStrategy The extraction strategy to use during ingestion.
+     * Ingests all pending images into structured datasets.
      */
-    fun ingest(uris: List<Uri>, context: Context, selectionStrategy: String) {
+    fun ingestAllPending(context: Context, onComplete: () -> Unit) {
+        if (isSimulating || isLoading) {
+            onComplete()
+            return
+        }
+
+        val currentRefUris = pendingReferences.map { it.uri }
+        val currentSampleUris = pendingSamples.map { it.uri }
+
+        // Skip if nothing has changed
+        if (currentRefUris == lastIngestedRefUris &&
+            currentSampleUris == lastIngestedSampleUris &&
+            ingestSelectionStrategy == lastIngestedSelectionStrategy &&
+            (referenceDataset != null || pendingReferences.isEmpty()) &&
+            (newDataset != null || pendingSamples.isEmpty())
+        ) {
+            onComplete()
+            return
+        }
+
         viewModelScope.launch {
             isLoading = true
-            newDataset = null
-            newDataset = ingestImages(uris, context, log=false, selectionStrategy=selectionStrategy)
+
+            // Sync current names into savedNames before they are potentially lost during re-ingestion
+            syncNames()
+
+            if (pendingReferences.isNotEmpty()) {
+                try {
+                    val dataset = ingestImages(
+                        currentRefUris,
+                        context,
+                        log = false,
+                        selectionStrategy = ingestSelectionStrategy
+                    )
+                    dataset.samples.forEachIndexed { i, sample ->
+                        sample.type = "Reference"
+                        sample.referenceName = pendingReferences.getOrNull(i)?.label ?: ""
+                    }
+                    referenceDataset = dataset
+                    lastIngestedRefUris = currentRefUris
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "Ingest", "Failed ingesting references", e)
+                }
+            }
+
+            if (pendingSamples.isNotEmpty()) {
+                try {
+                    val dataset = ingestImages(
+                        currentSampleUris,
+                        context,
+                        log = false,
+                        selectionStrategy = ingestSelectionStrategy
+                    )
+                    dataset.samples.forEachIndexed { i, sample ->
+                        sample.type = "Sample"
+                        sample.referenceName = pendingSamples.getOrNull(i)?.label ?: ""
+                    }
+                    newDataset = dataset
+                    lastIngestedSampleUris = currentSampleUris
+                } catch (e: Exception) {
+                    AppErrorLogger.logError(context, "Ingest", "Failed ingesting samples", e)
+                }
+            }
+
+            lastIngestedSelectionStrategy = ingestSelectionStrategy
+
+            // Restore names from savedNames
+            var nameIdx = 0
+            referenceDataset?.samples?.filter { it.isImage }?.forEach { sample ->
+                savedNames.getOrNull(nameIdx++)?.let { names ->
+                    sample.names.clear()
+                    sample.names.addAll(names)
+                }
+            }
+            newDataset?.samples?.filter { it.isImage }?.forEach { sample ->
+                savedNames.getOrNull(nameIdx++)?.let { names ->
+                    sample.names.clear()
+                    sample.names.addAll(names)
+                }
+            }
+
             isLoading = false
+            onComplete()
         }
     }
 
     /**
      * Checks if all samples in the current dataset have valid labels.
-     * 
+     *
      * @return True if all active labels are valid.
      */
     fun allSamplesValid(): Boolean {
-        return newDataset?.samples?.all { it.validateLabels() } ?: false
+        val refValid = referenceDataset?.samples?.all { it.validateLabels() } ?: true
+        val sampleValid = newDataset?.samples?.all { it.validateLabels() } ?: true
+        return refValid && sampleValid
     }
 
-    /**
-     * The name of the file currently imported (e.g., for CSV export defaults).
-     */
-    var importedFileName by mutableStateOf("data.csv")
-        private set
-
-    /**
-     * The URI of the currently imported file.
-     */
-    var importedFileUri by mutableStateOf<Uri?>(null)
-        private set
-
-    /**
-     * Updates the tracked import file and extracts its display name.
-     * 
-     * @param uri The URI of the file.
-     * @param context Context for resolving the file name.
-     */
     fun setImportedFile(uri: Uri, context: Context) {
         importedFileUri = uri
         val cursor = context.contentResolver.query(uri, null, null, null, null)
         cursor?.use {
             if (it.moveToFirst()) {
                 val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (nameIndex != -1) {
-                    importedFileName = it.getString(nameIndex)
-                }
+                if (nameIndex != -1) importedFileName = it.getString(nameIndex)
             }
         }
     }
 
     /**
-     * User-selected distance metric for classification.
-     */
-    var distanceMetric by mutableStateOf("Euclidean")
-    
-    /**
-     * User-selected color mode for classification.
-     */
-    var colorMode by mutableStateOf("RGB")
-    
-    /**
-     * User-selected normalization strategy for classification.
-     */
-    var normalizationStrategy by mutableStateOf("None")
-    
-    /**
-     * Tracks whether classification has been executed on the current dataset.
-     */
-    var classificationRan by mutableStateOf(false)
-
-    /**
-     * Executes classification using the current settings and datasets.
-     */
-    fun runClassification() {
-        val ref = referenceDataset
-        val new = newDataset
-        if (ref == null || new == null) return
-        new.classify(ref, new, distanceMetric, colorMode, normalizationStrategy)
-        classificationRan = true
-    }
-
-    /**
      * Sets the reference dataset by loading it from a CSV file.
-     * 
+     *
      * @param uri The URI of the CSV file.
      * @param context Context for file access.
      */
@@ -479,33 +571,310 @@ class DatasetModel : ViewModel() {
         referenceDataset = dataset
     }
 
-    /**
-     * Generates a CSV string representation of the current dataset.
-     * 
-     * @param includeHeader Whether to include the column headers in the output.
-     * @return A formatted CSV string.
-     */
-    fun toCsvString(includeHeader: Boolean = true): String {
-        if (newDataset?.isEmpty() ?: true) return ""  // No dataset or empty
+    private fun flattenSample(sample: Sample, normalizationStrategy: String): DoubleArray {
+        val data = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+        return sample.isSelected.indices
+            .filter { sample.isSelected[it] }
+            .sortedBy { sample.names[it] }
+            .flatMap { data[it].toList() }
+            .toDoubleArray()
+    }
 
-        val header = "sample_id,reference_name,distance_calculation,similarity_score,No Dye_r,No Dye_g,No Dye_b,DMGO_r,DMGO_g,DMGO_b,XO_r,XO_g,XO_b,Phen_r,Phen_g,Phen_b,DCP_r,DCP_g,DCP_b,PAR_r,PAR_g,PAR_b"
+    fun runWholeCardClassification() {
+        val ref = referenceDataset ?: return
+        val new = newDataset ?: return
 
-        val rows = newDataset!!.samples.joinToString("\n") { sample ->
-            // Reconstructing the row according to the header:
-            // sample_id,reference_name,distance_calculation,similarity_score,colors...
-            val rowItems = mutableListOf<String>()
-            rowItems.add(sample.referenceName ?: "")
-            rowItems.add("") // distance_calculation
-            rowItems.add("") // similarity_score
-            
-            sample.rgb.forEach { scalar ->
-                rowItems.add(scalar.`val`[0].toInt().toString())
-                rowItems.add(scalar.`val`[1].toInt().toString())
-                rowItems.add(scalar.`val`[2].toInt().toString())
+        for (sample in new.samples) {
+            try {
+                sample.classificationResults.clear()
+                val sampleVec = flattenSample(sample, normalizationStrategy)
+
+                var bestDistance = Double.MAX_VALUE
+                var bestRef: Sample? = null
+
+                for (refSample in ref.samples) {
+                    val refVec = flattenSample(refSample, normalizationStrategy)
+                    if (refVec.size != sampleVec.size) continue
+
+                    val distance = when (distanceMetric) {
+                        "Euclidean" -> {
+                            var sum = 0.0
+                            for (i in sampleVec.indices) {
+                                val diff = sampleVec[i] - refVec[i]
+                                sum += diff * diff
+                            }
+                            sqrt(sum)
+                        }
+                        "Manhattan" -> {
+                            var sum = 0.0
+                            for (i in sampleVec.indices) { sum += abs(sampleVec[i] - refVec[i]) }
+                            sum
+                        }
+                        else -> Double.MAX_VALUE
+                    }
+                    if (distance < bestDistance) {
+                        bestDistance = distance
+                        bestRef = refSample
+                    }
+                }
+
+                if (bestRef != null) {
+                    val wellNames = mutableListOf<String>()
+                    val sampleColors = mutableListOf<Scalar>()
+                    val referenceColors = mutableListOf<Scalar>()
+                    val wellDistances = mutableListOf<Double>()
+
+                    val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                    val normalizedRef = bestRef.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+
+                    sample.isSelected.forEachIndexed { dotIdx, isSelected ->
+                        if (isSelected) {
+                            val dotFeatures = normalizedSample[dotIdx]
+                            // Match by name if possible, or index fallback
+                            val refDotIdx = bestRef.names.indexOfFirst { it == sample.names[dotIdx] }
+                            if (refDotIdx != -1 && refDotIdx < normalizedRef.size) {
+                                val refFeatures = normalizedRef[refDotIdx]
+                                val wellDistance = when (distanceMetric) {
+                                    "Euclidean" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) {
+                                            val diff = dotFeatures[i] - refFeatures[i]
+                                            sum += diff * diff
+                                        }
+                                        sqrt(sum)
+                                    }
+                                    "Manhattan" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) {
+                                            sum += abs(dotFeatures[i] - refFeatures[i])
+                                        }
+                                        sum
+                                    }
+                                    else -> -1.0
+                                }
+                                wellNames.add(sample.names[dotIdx])
+                                sampleColors.add(sample.rgb[dotIdx])
+                                referenceColors.add(bestRef.rgb[refDotIdx])
+                                wellDistances.add(wellDistance)
+                            }
+                        }
+                    }
+
+                    sample.classificationResults.add(
+                        ClassificationResult(
+                            closestReferenceName = bestRef.referenceName,
+                            totalDistance = bestDistance,
+                            wellNames = wellNames,
+                            sampleColors = sampleColors,
+                            referenceColors = referenceColors,
+                            wellDistances = wellDistances
+                        )
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("Classification", "Whole card classification failed for sample", e)
             }
-            
-            rowItems.joinToString(",")
         }
-        return if (includeHeader) "$header\n$rows" else rows
+    }
+
+    fun runPerColorClassification() {
+        val ref = referenceDataset ?: return
+        val new = newDataset ?: return
+
+        for (sample in new.samples) {
+            try {
+                sample.classificationResults.clear()
+
+                val wellNames = mutableListOf<String>()
+                val sampleColors = mutableListOf<Scalar>()
+                val referenceColors = mutableListOf<Scalar>()
+                val wellDistances = mutableListOf<Double>()
+                val wellClosestRefs = mutableListOf<String>()
+
+                val normalizedSample = sample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+
+                sample.isSelected.forEachIndexed { dotIdx, isSelected ->
+                    if (isSelected) {
+                        val dotFeatures = normalizedSample[dotIdx]
+                        var bestWellDistance = Double.MAX_VALUE
+                        var bestWellRefName = "Unknown"
+                        var bestWellRefColor = Scalar(0.0, 0.0, 0.0)
+
+                        for (refSample in ref.samples) {
+                            val normalizedRef = refSample.getNormalizedData(normalizationStrategy, colorMode, selectionStrategy)
+                            val refDotIdx = refSample.names.indexOfFirst { it == sample.names[dotIdx] }
+                            if (refDotIdx != -1 && refDotIdx < normalizedRef.size) {
+                                val refFeatures = normalizedRef[refDotIdx]
+                                val distance = when (distanceMetric) {
+                                    "Euclidean" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) {
+                                            val diff = dotFeatures[i] - refFeatures[i]
+                                            sum += diff * diff
+                                        }
+                                        sqrt(sum)
+                                    }
+                                    "Manhattan" -> {
+                                        var sum = 0.0
+                                        for (i in dotFeatures.indices) { sum += abs(dotFeatures[i] - refFeatures[i]) }
+                                        sum
+                                    }
+                                    else -> Double.MAX_VALUE
+                                }
+                                if (distance < bestWellDistance) {
+                                    bestWellDistance = distance
+                                    bestWellRefName = refSample.referenceName
+                                    bestWellRefColor = refSample.rgb[refDotIdx]
+                                }
+                            }
+                        }
+
+                        wellNames.add(sample.names[dotIdx])
+                        sampleColors.add(sample.rgb[dotIdx])
+                        referenceColors.add(bestWellRefColor)
+                        wellDistances.add(bestWellDistance)
+                        wellClosestRefs.add(bestWellRefName)
+                    }
+                }
+
+                sample.classificationResults.add(
+                    ClassificationResult(
+                        closestReferenceName = "Mixed / Per Well",
+                        totalDistance = wellDistances.sum(),
+                        wellNames = wellNames,
+                        sampleColors = sampleColors,
+                        referenceColors = referenceColors,
+                        wellDistances = wellDistances,
+                        wellClosestReferences = wellClosestRefs
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e("Classification", "Per color classification failed", e)
+            }
+        }
+    }
+
+    fun runClassification() {
+        val ref = referenceDataset
+        val new = newDataset
+        if (ref == null || new == null) return
+        if (comparisonMode == "Whole Card") {
+            runWholeCardClassification()
+        } else {
+            runPerColorClassification()
+        }
+    }
+
+    fun syncNames() {
+        savedNames.clear()
+        val combined = mutableListOf<Sample>()
+        referenceDataset?.samples?.filter { it.isImage }?.let { combined.addAll(it) }
+        newDataset?.samples?.filter { it.isImage }?.let { combined.addAll(it) }
+        combined.forEach { sample ->
+            savedNames.add(sample.names.toList())
+        }
+    }
+
+    fun reset() {
+        pendingReferences.clear()
+        pendingSamples.clear()
+        referenceImageUris.clear()
+        sampleImageUris.clear()
+        temporaryUris = emptyList()
+        referenceDataset = null
+        newDataset = null
+        importedFileName = "data.csv"
+        importedFileUri = null
+        comparisonMode = "Whole Card"
+        savedNames.clear()
+        lastIngestedRefUris = emptyList()
+        lastIngestedSampleUris = emptyList()
+        lastIngestedSelectionStrategy = ""
+    }
+
+    fun saveToHistory() {
+        val dataset = newDataset ?: return
+        val summary = dataset.samples.joinToString("; ") { sample ->
+            val result = sample.classificationResults.firstOrNull()
+            "${sample.referenceName} -> ${result?.closestReferenceName ?: "N/A"}"
+        }
+        val csvData = toCsvString(includeHeader = true, datasetChoice = "combined")
+        analysisHistory.add(0, AnalysisHistoryEntry(
+            fileName = importedFileName,
+            summary = summary,
+            csvData = csvData,
+            distanceMetric = distanceMetric,
+            colorMode = colorMode,
+            normalizationStrategy = normalizationStrategy
+        ))
+    }
+
+    fun deleteHistoryEntry(entry: AnalysisHistoryEntry) {
+        analysisHistory.remove(entry)
+    }
+
+    fun startSimulation(navController: NavController) {
+        if (isSimulating) return  // 🔥 prevents double start
+
+        isSimulating = true
+        syncNames()
+
+        viewModelScope.launch(Dispatchers.Default) {
+            runNavigationSimulation(
+                viewModel = this@DatasetModel,
+                navController = navController,
+                scope = viewModelScope
+            )
+            isSimulating = false
+        }
+    }
+
+    fun toCsvString(includeHeader: Boolean = true, datasetChoice: String = "sample"): String {
+        val table = if (datasetChoice == "sample") newDataset else referenceDataset
+        if (table == null || table.samples.isEmpty()) return ""
+
+        // Calculate the union of all well names across all samples in the dataset, regardless of selection
+        val allWellNames = table.samples.flatMap { sample ->
+            sample.names.filter { it.isNotBlank() }
+        }.distinct().sorted()
+
+        val dyeHeaders = allWellNames.flatMap { name ->
+            listOf("${name}_r", "${name}_g", "${name}_b")
+        }
+        val calHeaders = listOf(
+            "cal0_r","cal0_g","cal0_b",
+            "cal1_r","cal1_g","cal1_b",
+            "cal2_r","cal2_g","cal2_b",
+            "cal3_r","cal3_g","cal3_b"
+        )
+        val header = (listOf("sample_id","reference_name","distance_calculation","similarity_distance")
+                + calHeaders + dyeHeaders).joinToString(",")
+
+        val rows = table.samples.mapIndexed { sampleIdx, sample ->
+            val result = sample.classificationResults.firstOrNull()
+            val totalDist = result?.totalDistance ?: ""
+            val refName = result?.closestReferenceName ?: sample.referenceName
+            val meta = listOf(sampleIdx.toString(), refName, distanceMetric, totalDist.toString())
+
+            val cal = sample.squares.take(4).flatMap {
+                listOf(it.`val`[0], it.`val`[1], it.`val`[2])
+            }.map { it.toString() }
+
+            val rgbParts = allWellNames.flatMap { name ->
+                val index = sample.names.indexOf(name)
+                // Fill with RGB values if well exists, even if not selected
+                if (index != -1) {
+                    val scalar = sample.rgb[index]
+                    listOf(scalar.`val`[0].toString(), scalar.`val`[1].toString(), scalar.`val`[2].toString())
+                } else {
+                    listOf("", "", "")
+                }
+            }
+
+            (meta + cal + rgbParts).joinToString(",")
+        }
+
+        val body = rows.joinToString("\n")
+        return if (includeHeader) "$header\n$body" else body
     }
 }

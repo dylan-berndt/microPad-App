@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "950538566830",
+    "project_id": "micropad-analysis",
+    "storage_bucket": "micropad-analysis.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:950538566830:android:b375532e3e9c33dfdf013f",
+        "android_client_info": {
+          "package_name": "com.example.micropad"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuucWh0okHFWomb5mwVDD-uaf8QODmWSc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

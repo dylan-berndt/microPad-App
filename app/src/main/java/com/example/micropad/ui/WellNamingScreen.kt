@@ -1,67 +1,40 @@
 package com.example.micropad.ui
 
 import android.net.Uri
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.pager.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
 import androidx.navigation.NavController
 import com.example.micropad.R
-import com.example.micropad.data.DatasetModel
-import com.example.micropad.data.SampleDataset
-import com.example.micropad.data.drawOrdering
+import com.example.micropad.data.*
 import kotlinx.coroutines.launch
+import org.opencv.core.Point
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.platform.testTag
 
 /**
  * Convert a list of URIs to a comma-separated string.
- *
- * @param addresses The list of URIs to convert.
- * @receiver The Composable calling this function.
- * @return A string representation of the URIs.
  */
 fun urisToString(addresses: List<Uri>): String {
     val uriStrings = addresses.map { it.toString() }
@@ -70,10 +43,6 @@ fun urisToString(addresses: List<Uri>): String {
 
 /**
  * Convert a comma-separated string of URIs to a list of URIs.
- *
- * @param data The comma-separated string of URIs.
- * @receiver The Composable calling this function.
- * @return A list of URIs.
  */
 fun stringToURIs(data: String): List<Uri> {
     return if (data.isNotEmpty()) {
@@ -83,37 +52,32 @@ fun stringToURIs(data: String): List<Uri> {
 
 /**
  * Display a grid of well names.
- *
- * @param dataset The dataset to display.
- * @param onFocusChange A callback to invoke when the user focuses on a well name.
- * @receiver The Composable calling this function.
- * @return Unit
  */
 @Composable
 fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     val numberOfDots = dataset.samples.getOrNull(0)?.rgb?.size ?: 0
-    val scrollState = rememberScrollState()
-
-    var texts = remember { mutableStateListOf<String>().apply {repeat(numberOfDots) { add("") } } }
-    var selected = remember { mutableStateListOf<Boolean>().apply {repeat(numberOfDots) { add(true) } } }
+    val firstSample = dataset.samples.getOrNull(0)
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().height(20.dp)) {
-            Text("Selected", modifier = Modifier.fillMaxWidth(0.2f))
-            Text("Region of Interest Name", modifier = Modifier.fillMaxWidth(0.8f))
+        Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Selected", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(72.dp))
+            Text("Region of Interest Name", style = MaterialTheme.typography.labelMedium)
         }
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(texts) { i, text ->
-                val isSelected = if (i < selected.size) selected[i] else true
+        LazyColumn(modifier = Modifier.fillMaxSize().testTag("roiList")) {
+            items((0 until numberOfDots).toList()) { i ->
+                val name = firstSample?.names?.getOrNull(i) ?: ""
+                val isSelected = firstSample?.isSelected?.getOrNull(i) ?: true
+
                 Box {
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
-                            selected[i], { dataset.toggleWell(i, it); selected[i] = it },
+                            checked = isSelected,
+                            onCheckedChange = { dataset.toggleWell(i, it) },
                             modifier = Modifier.fillMaxWidth(0.2f)
                         )
                         TextField(
-                            value = texts[i],
-                            onValueChange = { dataset.nameWell(i, it); texts[i] = it },
+                            value = name,
+                            onValueChange = { dataset.nameWell(i, it) },
                             label = { Text(text = "ROI ${i + 1}") },
                             placeholder = { Text("Enter a Label") },
                             singleLine = true,
@@ -133,69 +97,95 @@ fun WellNamingGrid(dataset: SampleDataset, onFocusChange: (Int?) -> Unit) {
     }
 }
 
-
 /**
- * Display a grid of well names.
- *
- * @param dataset The dataset to display.
- * @param sampleIndex The index of the sample to display.
- * @receiver The Composable calling this function.
- * @return Unit
+ * Display a grid for ordering wells.
  */
 @Composable
 fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
-    var from by remember { mutableIntStateOf(-1) };
-    var to by remember { mutableIntStateOf(-1) };
-    val scrollState = rememberScrollState()
+    var from by remember { mutableIntStateOf(-1) }
+    var to by remember { mutableIntStateOf(-1) }
 
-    // No image has been selected
     if (sampleIndex == -1) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text("Select an Image")
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Select an Image Card above", color = Color.Gray)
         }
         return
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Text("Select two ROIs to swap")
+        Text("Select two ROIs to swap", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(bottom = 8.dp))
 
-        // If the user has selected a dot to transfer from and to, allow them to reorder
         if (from != -1 && to != -1) {
-            Text("ROI ${from + 1} <-> ROI ${to + 1}")
-            Button({
-                dataset.reorderSample(sampleIndex, from, to)
-                from = -1
-                to = -1
-            }) {
-                Text("Reorder samples")
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+                Text("ROI ${from + 1} ↔ ROI ${to + 1}", fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.width(16.dp))
+                Button(onClick = {
+                    dataset.reorderSample(sampleIndex, from, to)
+                    from = -1
+                    to = -1
+                }, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+                    Text("Swap Positions", fontSize = 12.sp)
+                }
             }
         }
 
-        LazyColumn() {
-            itemsIndexed(dataset.samples[sampleIndex].dots) { i, dot ->
-                // Create a selection button for each ROI
-                Row(verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                        .clickable {
-                            // If the user selects this radio button
-                            // and this button is not already selected,
-                            // select the region to be the from or to, in order
-                            if (from == -1) {
-                                from = i
-                            } else if (to == -1 && from != i) {
-                                to = i
-                            } else if (from != i) {
-                                from = to
-                                to = i
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            itemsIndexed(dataset.samples[sampleIndex].dots) { i, _ ->
+                Surface(
+                    onClick = {
+                        if (from == -1) { from = i }
+                        else if (to == -1 && from != i) { to = i }
+                        else if (from != i) { from = to; to = i }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = if (i == from || i == to) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        RadioButton(i == from || i == to, null)
+                        Text("ROI ${i + 1}", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun ManualRoiPickerDialog(
+    bitmap: android.graphics.Bitmap,
+    onDismiss: () -> Unit,
+    onPointSelected: (Point) -> Unit
+) {
+    var imageSize by remember { mutableStateOf(IntSize.Zero) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = MaterialTheme.shapes.large, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Tap missed dye spot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("The new ROI will be added to every card using the same layout position.", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(12.dp))
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "First card for manual ROI selection",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onSizeChanged { imageSize = it }
+                        .pointerInput(bitmap, imageSize) {
+                            detectTapGestures { offset ->
+                                if (imageSize.width == 0 || imageSize.height == 0) return@detectTapGestures
+                                val x = offset.x * bitmap.width / imageSize.width
+                                val y = offset.y * bitmap.height / imageSize.height
+                                onPointSelected(Point(x.toDouble(), y.toDouble()))
                             }
                         }
-                        .padding(8.dp)) {
-                    RadioButton(i == from || i == to, null)
-                    Text("ROI ${i + 1}")
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
                 }
             }
         }
@@ -212,83 +202,207 @@ fun WellOrderingGrid(dataset: SampleDataset, sampleIndex: Int) {
  * @return Unit
  */
 @Composable
-fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navController: NavController) {
+fun ReferenceOnlyDialog(navigate: () -> Unit, onDismissRequest: () -> Unit, viewModel: DatasetModel) {
+    val csvData = viewModel.toCsvString(datasetChoice="reference")
+
+    AlertDialog(
+        title = { Text("Export Reference Data") },
+        text = { Text("You have only imported reference data. Move on to export a reference dataset.") },
+        onDismissRequest = onDismissRequest,
+        confirmButton = { CsvExportButton(type = "references", dataRows = csvData, navHome = navigate) },
+        dismissButton = {TextButton(onClick = onDismissRequest) { Text("Return") } }
+    )
+}
+
+@Composable
+fun WellNamingScreen(viewModel: DatasetModel, navController: NavController) {
     val context = LocalContext.current
     var focusedIndex by remember { mutableStateOf<Int?>(null) }
-
     var selectedImage by remember { mutableIntStateOf(-1) }
-
     val strategies = listOf("Mean", "Center")
-    var selectionStrategy by remember {mutableStateOf("Mean")}
+    val openAlertDialog = remember { mutableStateOf(false) }
+    var showManualRoiPicker by remember { mutableStateOf(false) }
+    var manualWellVersion by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(addresses, selectionStrategy) {
-        viewModel.ingest(addresses, context, selectionStrategy)
+    LaunchedEffect(Unit) {
+        viewModel.ingestAllPending(context) {}
     }
 
-    if (viewModel.isLoading) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            CircularProgressIndicator()
+    Scaffold(
+        topBar = {
+            @OptIn(ExperimentalMaterial3Api::class)
+            TopAppBar(
+                title = { Text("Process & Name Wells", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
         }
-    } else {
-        viewModel.newDataset?.let { dataset ->
+    ) { innerPadding ->
+        if (viewModel.isLoading) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Processing Images...", style = MaterialTheme.typography.bodyLarge)
+                }
+            }
+        } else {
+            val combinedSamples = mutableListOf<com.example.micropad.data.Sample>()
+            viewModel.referenceDataset?.samples?.let { it1 -> combinedSamples.addAll(it1.filter { it2 -> it2.isImage }) }
+            viewModel.newDataset?.samples?.let { combinedSamples.addAll(it) }
 
-            Column(modifier = Modifier.fillMaxWidth().padding(top=36.dp, bottom=36.dp)) {
-                LazyColumn(
-                    modifier = Modifier.weight(1f).align(Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            if (combinedSamples.isEmpty()) {
+                Box(
+                    Modifier.fillMaxSize().padding(innerPadding),
+                    contentAlignment = Alignment.Center
                 ) {
-                    itemsIndexed(dataset.samples) { index, sample ->
-                        var modifier = Modifier
-                            .fillMaxWidth(0.95f)
-                            .height(200.dp)
-                            .clickable(onClick = { selectedImage = index })
-                            .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
-                        if (index == selectedImage) {
-                            modifier = modifier
-                                .background(MaterialTheme.colorScheme.primary)
+                    Text("No data to process", color = Color.Gray)
+                }
+                return@Scaffold
+            }
+
+            LaunchedEffect(combinedSamples) {
+                combinedSamples.forEachIndexed { sampleIdx, sample ->
+                    viewModel.savedNames.getOrNull(sampleIdx)?.let { names ->
+                        names.forEachIndexed { nameIdx, name ->
+                            if (nameIdx < sample.names.size) {
+                                sample.names[nameIdx] = name
+                            }
                         }
+                    }
+                }
+            }
 
-                        // Yeesh
-                        val displayBitmap = remember(sample.ordering, focusedIndex, sample.isSelected.toList()) {
-                            sample.ordering?.let { drawOrdering(sample.imageData ?: return@let it, sample.dots, focusedIndex, sample.isSelected) }
-                        }
+            when {
+                openAlertDialog.value -> {
+                    ReferenceOnlyDialog(
+                        navigate = {
+                            viewModel.reset()
+                            navController.navigate("home")
+                        },
+                        onDismissRequest = { openAlertDialog.value = false },
+                        viewModel = viewModel
+                    )
+                }
+            }
 
-                        if (displayBitmap != null) {
-                            Row(modifier = modifier) {
-                                Image(
-                                    bitmap = displayBitmap.asImageBitmap(),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .fillMaxWidth(0.6f / 0.95f)
-                                        .height(200.dp)
-                                )
-                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    itemsIndexed(sample.names) { i, name ->
-                                        if (name != "") {
-                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Text("${i + 1}. ${name}", modifier=Modifier.padding(end=5.dp))
-                                                val scalar = sample.dots[i].second
-                                                val color = Color(
-                                                    red = scalar.`val`[2].toInt(),
-                                                    green = scalar.`val`[1].toInt(),
-                                                    blue = scalar.`val`[0].toInt(),
-                                                    alpha = 255
-                                                )
+            val firstSample = combinedSamples.firstOrNull()
 
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(15.dp)
-                                                        .background(color)
-                                                        .border(width=2.dp, color=MaterialTheme.colorScheme.primary)
-                                                )
+            if (showManualRoiPicker && combinedSamples[selectedImage]?.ordering != null) {
+                ManualRoiPickerDialog(
+                    bitmap = combinedSamples[selectedImage].ordering!!,
+                    onDismiss = { showManualRoiPicker = false },
+                    onPointSelected = { point ->
+                        val radius = estimateWellRadius(combinedSamples[selectedImage].dots)
+                        combinedSamples[selectedImage].addManualDot(point, radius, viewModel.selectionStrategy)
+                        manualWellVersion++
+                        focusedIndex = combinedSamples.firstOrNull()?.dots?.lastIndex
+                        showManualRoiPicker = false
+                    }
+                )
+            }
+
+            Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    itemsIndexed(combinedSamples) { index, sample ->
+                        val isSelected = index == selectedImage
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clickable { selectedImage = index },
+                            elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 8.dp else 2.dp),
+                            border = if (isSelected) BorderStroke(
+                                2.dp,
+                                MaterialTheme.colorScheme.primary
+                            ) else null
+                        ) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                val displayBitmap = remember(
+                                    sample.ordering,
+                                    focusedIndex,
+                                    sample.isSelected.toList(),
+                                    manualWellVersion
+                                ) {
+                                    sample.ordering?.let {
+                                        drawOrdering(
+                                            sample.imageData ?: return@let it,
+                                            sample.dots,
+                                            focusedIndex,
+                                            sample.isSelected
+                                        )
+                                    }
+                                }
+                                if (displayBitmap != null) {
+                                    Image(
+                                        bitmap = displayBitmap.asImageBitmap(),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.weight(1.2f).fillMaxHeight()
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f).fillMaxHeight().padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = sample.referenceName.ifBlank { "Sample ${index + 1}" },
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                        itemsIndexed(sample.names) { i, name ->
+                                            if (name.isNotBlank()) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Text(
+                                                        text = "${i + 1}. $name",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.weight(1f)
+                                                    )
+                                                    val scalar = sample.dots[i].second
+                                                    val dotColor = Color(
+                                                        red = scalar.`val`[0].toInt()
+                                                            .coerceIn(0, 255),
+                                                        green = scalar.`val`[1].toInt()
+                                                            .coerceIn(0, 255),
+                                                        blue = scalar.`val`[2].toInt()
+                                                            .coerceIn(0, 255),
+                                                        alpha = 255
+                                                    )
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(12.dp)
+                                                            .clip(CircleShape)
+                                                            .background(dotColor)
+                                                            .border(
+                                                                0.5.dp,
+                                                                Color.LightGray,
+                                                                CircleShape
+                                                            )
+                                                    )
+                                                }
                                             }
                                         }
-                                        else null
                                     }
                                 }
                             }
@@ -296,86 +410,106 @@ fun WellNamingScreen(addresses: List<Uri>, viewModel: DatasetModel, navControlle
                     }
                 }
 
-                val tabs: List<@Composable () -> Unit> = listOf(
-                    { WellOrderingGrid(dataset, selectedImage) },
-                    { WellNamingGrid(dataset) { index -> focusedIndex = index } }
-                )
-                val tabNames = listOf("ROI Ordering", "ROI Naming")
-                val pagerState = rememberPagerState(pageCount = { tabs.size })
-                val coroutineScope = rememberCoroutineScope()
-
-                HorizontalPager(state = pagerState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .padding(all = 10.dp)) { page ->
-                    tabs[page]()
-                }
-                TabRow(selectedTabIndex = pagerState.currentPage) {
-                    tabs.forEachIndexed { index, composable ->
-                        Tab(
-                            text = { Text(tabNames[index]) },
-                            selected = pagerState.currentPage == index,
-                            onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } }
-                        )
-                    }
-                }
-
-                val isDropDownExpanded = remember {
-                    mutableStateOf(false)
-                }
-
                 Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable {
-                        isDropDownExpanded.value = true
-                    }
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Text(text = "Dye Extraction Strategy: $selectionStrategy ")
-                    Image(
-                        painter = painterResource(id = R.drawable.dropdown),
-                        contentDescription = "DropDown Icon",
-                        modifier = Modifier.size(15.dp)
-                    )
+                    OutlinedButton(onClick = { if (selectedImage != -1) showManualRoiPicker = true }) {
+                        Text(if (selectedImage == -1) "Select image to add missed ROI" else "Add missed ROI")
+                    }
                 }
 
-                DropdownMenu(
-                    expanded = isDropDownExpanded.value,
-                    onDismissRequest = {
-                        isDropDownExpanded.value = false
-                    }) {
-                    strategies.forEachIndexed { index, strategy ->
-                        DropdownMenuItem(text = {
-                            Text(text = strategy)
-                        },
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(320.dp),
+                    tonalElevation = 4.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    Column {
+                        val tempDataset =
+                            remember(combinedSamples) { SampleDataset(combinedSamples) }
+                        val tabNames = listOf("ROI Ordering", "ROI Naming")
+                        val pagerState = rememberPagerState(pageCount = { 2 })
+                        val scope = rememberCoroutineScope()
+
+                        TabRow(selectedTabIndex = pagerState.currentPage) {
+                            tabNames.forEachIndexed { index, name ->
+                                Tab(
+                                    selected = pagerState.currentPage == index,
+                                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                                    text = {
+                                        Text(
+                                            name,
+                                            style = MaterialTheme.typography.titleSmall
+                                        )
+                                    }
+                                )
+                            }
+                        }
+
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.weight(1f).padding(16.dp)
+                        ) { page ->
+                            if (page == 0) WellOrderingGrid(tempDataset, selectedImage)
+                            else WellNamingGrid(tempDataset) { focusedIndex = it }
+                        }
+
+                        var isDropDownExpanded by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isDropDownExpanded = true }
+                                .padding(vertical = 8.dp, horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Dye Extraction: ${viewModel.selectionStrategy} ",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Icon(painterResource(R.drawable.dropdown), null, Modifier.size(12.dp))
+                            DropdownMenu(
+                                expanded = isDropDownExpanded,
+                                onDismissRequest = { isDropDownExpanded = false }) {
+                                strategies.forEach { strategy ->
+                                    DropdownMenuItem(
+                                        text = { Text(strategy) },
+                                        onClick = {
+                                            isDropDownExpanded = false
+                                            viewModel.selectionStrategy = strategy
+                                            viewModel.ingestAllPending(context) {}
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Button(
                             onClick = {
-                                isDropDownExpanded.value = false
-                                selectionStrategy = strategy
-                            })
+                                viewModel.savedNames.clear()
+                                combinedSamples.forEach { sample ->
+                                    viewModel.savedNames.add(sample.names.toList())
+                                }
+                                if (viewModel.newDataset != null) {
+                                    navController.navigate("options")
+                                } else {
+                                    openAlertDialog.value = true;
+                                }
+                            },
+                            enabled = viewModel.allSamplesValid(),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp)
+                        ) {
+                            Text("Next")
+                        }
+
+                        if (!viewModel.allSamplesValid()) {
+                            Text(
+                                text = "Please assign all active labels before continuing",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            )
+                        }
                     }
-                }
-
-                // NEXT BUTTON
-                Button(
-                    onClick = {
-                        navController.navigate("import")
-                    },
-                    enabled = viewModel.allSamplesValid(),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                ) {
-                    Text("Next")
-                }
-
-                // Show warning if not valid
-                if (!viewModel.allSamplesValid()) {
-                    Text(
-                        text = "Please assign all active labels before continuing",
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
                 }
             }
         }

@@ -21,27 +21,10 @@ import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,13 +38,14 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.compose.AsyncImage
+import com.example.micropad.data.ErrorHandler
 import java.io.File
 
 /**
  * Enum representing the flow of the camera screen.
  */
 enum class CameraFlowScreen {
-    CAMERA, LABELING, PROMPT
+    CAMERA, PROMPT
 }
 
 /**
@@ -73,11 +57,10 @@ enum class CameraFlowScreen {
  * @return Unit
  */
 @Composable
-fun CameraScreen(onImagesProcessed: (List<LabeledImage>) -> Unit) {
+fun CameraScreen(onImagesProcessed: (List<Uri>) -> Unit) {
     val context = LocalContext.current
     val activity = context as? Activity
 
-    // State to track if the camera permission is granted.
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -87,7 +70,6 @@ fun CameraScreen(onImagesProcessed: (List<LabeledImage>) -> Unit) {
         )
     }
 
-    // Launcher for requesting camera permission.
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted: Boolean ->
@@ -95,14 +77,12 @@ fun CameraScreen(onImagesProcessed: (List<LabeledImage>) -> Unit) {
         }
     )
 
-    // Request permission when the screen is first displayed if not already granted.
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 
-    // Display content based on whether the permission is granted.
     Box(modifier = Modifier.fillMaxSize()) {
         if (hasCameraPermission) {
             CameraContent(onImagesProcessed = onImagesProcessed)
@@ -135,64 +115,53 @@ fun CameraScreen(onImagesProcessed: (List<LabeledImage>) -> Unit) {
  * @return Unit
  */
 @Composable
-private fun CameraContent(onImagesProcessed: (List<LabeledImage>) -> Unit) {
+private fun CameraContent(onImagesProcessed: (List<Uri>) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var allLabeledImages by remember { mutableStateOf(listOf<LabeledImage>()) }
+    val capturedUris = remember { mutableStateListOf<Uri>() }
     var currentScreen by remember { mutableStateOf(CameraFlowScreen.CAMERA) }
-    var capturedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var latestCapturedUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Create and remember the camera controller.
     val cameraController = remember {
         LifecycleCameraController(context).apply {
             setEnabledUseCases(CameraController.IMAGE_CAPTURE)
         }
     }
 
-    // Bind the camera controller to the lifecycle.
     LaunchedEffect(lifecycleOwner) {
         cameraController.bindToLifecycle(lifecycleOwner)
     }
 
     when (currentScreen) {
         CameraFlowScreen.CAMERA -> {
-            if (capturedImageUri == null) {
+            if (latestCapturedUri == null) {
                 CameraPreview(
                     controller = cameraController,
                     onCapture = { uri ->
-                        capturedImageUri = uri
+                        latestCapturedUri = uri
                     }
                 )
             } else {
                 ImagePreviewScreen(
-                    imageUri = capturedImageUri!!,
-                    onRetake = { capturedImageUri = null },
+                    imageUri = latestCapturedUri ?: return,
+                    onRetake = { latestCapturedUri = null },
                     onUsePhoto = {
-                        currentScreen = CameraFlowScreen.LABELING
+                        capturedUris.add(latestCapturedUri!!)
+                        currentScreen = CameraFlowScreen.PROMPT
                     }
                 )
             }
         }
-        CameraFlowScreen.LABELING -> {
-            LabelingScreen(
-                imageUri = capturedImageUri!!,
-                onBack = { currentScreen = CameraFlowScreen.CAMERA },
-                onConfirm = { label ->
-                    allLabeledImages = allLabeledImages + LabeledImage(capturedImageUri!!, label)
-                    currentScreen = CameraFlowScreen.PROMPT
-                }
-            )
-        }
         CameraFlowScreen.PROMPT -> {
             NextStepPrompt(
-                capturedCount = allLabeledImages.size,
+                capturedCount = capturedUris.size,
                 onCaptureMore = {
-                    capturedImageUri = null
+                    latestCapturedUri = null
                     currentScreen = CameraFlowScreen.CAMERA
                 },
                 onProcess = {
-                    onImagesProcessed(allLabeledImages)
+                    onImagesProcessed(capturedUris.toList())
                 }
             )
         }
@@ -254,13 +223,19 @@ fun CameraPreview(
 
         BoundingBoxOverlay()
 
-        // Improved Professional Capture button.
         Button(
             onClick = {
                 val photoFile = File(
                     context.cacheDir,
                     "photo_${System.currentTimeMillis()}.jpg"
                 )
+
+                val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    context.display
+                } else {
+                    @Suppress("DEPRECATION")
+                    (context as? Activity)?.windowManager?.defaultDisplay
+                }
 
                 val outputOptions =
                     ImageCapture.OutputFileOptions.Builder(photoFile).build()
@@ -274,7 +249,9 @@ fun CameraPreview(
                         }
 
                         override fun onError(exception: ImageCaptureException) {
-                            exception.printStackTrace()
+                            ErrorHandler.safeExecute(context) {
+                                throw exception
+                            }
                         }
                     }
                 )
@@ -318,7 +295,6 @@ fun ImagePreviewScreen(
 ) {
     val context = LocalContext.current
     Box(modifier = Modifier.fillMaxSize()) {
-        // Display the captured image using Coil's AsyncImage.
         AsyncImage(
             model = imageUri,
             contentDescription = "Captured Image Preview",
@@ -326,30 +302,62 @@ fun ImagePreviewScreen(
             contentScale = ContentScale.Fit
         )
 
-        // Buttons for user actions.
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(24.dp),
             horizontalArrangement = Arrangement.Center
         ) {
-
             Button(onClick = onUsePhoto) {
                 Text("Use")
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             Button(onClick = onRetake) {
                 Text("Retake")
             }
-
             Spacer(modifier = Modifier.width(8.dp))
-
             Button(onClick = { saveImageToGallery(context, imageUri) }) {
                 Text("Save to Gallery")
             }
+        }
+    }
+}
 
+@Composable
+fun NextStepPrompt(
+    capturedCount: Int,
+    onCaptureMore: () -> Unit,
+    onProcess: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = "Images Captured!",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = "Total images in batch: $capturedCount",
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.padding(top = 8.dp, bottom = 32.dp)
+        )
+
+        Button(
+            onClick = onCaptureMore,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        ) {
+            Text("Add Another Image")
+        }
+
+        OutlinedButton(
+            onClick = onProcess,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Finish")
         }
     }
 }
@@ -363,36 +371,40 @@ fun ImagePreviewScreen(
  * @return Unit
  */
 private fun saveImageToGallery(context: Context, uri: Uri) {
-    val contentValues = ContentValues().apply {
-        put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")
-        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/microPad")
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-    }
+    ErrorHandler.safeExecute(context) {
 
-    val resolver = context.contentResolver
-    val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "microPad_${System.currentTimeMillis()}.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
 
-    imageUri?.let { targetUri ->
-        try {
-            resolver.openOutputStream(targetUri).use { outputStream ->
-                context.contentResolver.openInputStream(uri).use { inputStream ->
-                    inputStream?.copyTo(outputStream!!)
-                }
-            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                resolver.update(targetUri, contentValues, null, null)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/microPad")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            resolver.delete(targetUri, null, null)
-            Toast.makeText(context, "Failed to save image", Toast.LENGTH_SHORT).show()
         }
-    } ?: run {
-        Toast.makeText(context, "Failed to create gallery entry", Toast.LENGTH_SHORT).show()
+
+        val resolver = context.contentResolver
+        val imageUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            ?: throw Exception("Failed to create gallery entry")
+
+        val outputStream = resolver.openOutputStream(imageUri)
+            ?: throw Exception("Output stream is null")
+
+        val inputStream = context.contentResolver.openInputStream(uri)
+            ?: throw Exception("Input stream is null")
+
+        outputStream.use { out ->
+            inputStream.use { input ->
+                input.copyTo(out)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(imageUri, contentValues, null, null)
+        }
+
+        Toast.makeText(context, "Image saved to gallery", Toast.LENGTH_SHORT).show()
     }
 }

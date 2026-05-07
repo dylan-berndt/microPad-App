@@ -1,12 +1,31 @@
+/*
+ * Copyright 2025 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 package com.example.micropad.data
 
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.ExifInterface
 import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import androidx.core.graphics.createBitmap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -18,11 +37,13 @@ import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -41,25 +62,28 @@ import kotlin.math.sqrt
  */
 fun saveMat(mat: Mat, filename: String, context: Context): String? {
     return try {
+        if (mat.empty()) {
+            AppErrorLogger.logError(context, "ImagePipeline", "saveMat: received empty Mat for $filename")
+            return null
+        }
         val bitmap = createBitmap(mat.cols(), mat.rows())
         Utils.matToBitmap(mat, bitmap)
-
         val picturesDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES)
+            ?: run {
+                AppErrorLogger.logError(context, "ImagePipeline", "saveMat: external storage unavailable")
+                return null
+            }
         val file = File(picturesDir, filename)
-
         FileOutputStream(file).use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
-
-        Log.d("Image", "Saved " + file.absolutePath)
-
+        Log.d("Pipeline", "Saved: ${file.absolutePath} (${mat.cols()}x${mat.rows()})")
         file.absolutePath
     } catch (e: Exception) {
-        e.printStackTrace()
+        AppErrorLogger.logError(context, "ImagePipeline", "saveMat failed for $filename", e)
         null
     }
 }
-
 
 /**
  * Detect contours around each dye well in the image.
@@ -70,53 +94,39 @@ fun saveMat(mat: Mat, filename: String, context: Context): String? {
  * @returns ArrayList<MatOfPoint> list of contours
  */
 fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoint> {
-    val gray = Mat()
-    Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
-
-    val blurred = Mat()
-    Imgproc.GaussianBlur(gray, blurred, Size(9.0, 9.0), 0.0)
-
-    if (log) {
-        saveMat(blurred, "blurred.png", context)
+    return try {
+        if (image.empty()) {
+            AppErrorLogger.logError(context, "ImagePipeline", "findContours: empty input image")
+            return arrayListOf()
+        }
+        Log.d("Pipeline", "--- Stage: Contour Detection ---")
+        val gray = Mat()
+        val blurred = Mat()
+        val thresh = Mat()
+        val hierarchy = Mat()
+        val contours = ArrayList<MatOfPoint>()
+        try {
+            Imgproc.cvtColor(image, gray, Imgproc.COLOR_BGR2GRAY)
+            Imgproc.GaussianBlur(gray, blurred, Size(9.0, 9.0), 0.0)
+            if (log) saveMat(blurred, "blurred.png", context)
+            Imgproc.adaptiveThreshold(
+                blurred, thresh, 255.0,
+                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV, 35, 2.0
+            )
+            if (log) saveMat(thresh, "threshold.png", context)
+            Imgproc.findContours(
+                thresh, contours, hierarchy,
+                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
+            )
+            Log.d("Pipeline", "Found ${contours.size} contours")
+        } finally {
+            gray.release(); blurred.release(); thresh.release(); hierarchy.release()
+        }
+        contours
+    } catch (e: Exception) {
+        AppErrorLogger.logError(context, "ImagePipeline", "findContours failed", e)
+        arrayListOf()
     }
-
-    val thresh = Mat()
-    Imgproc.adaptiveThreshold(
-        blurred, thresh, 255.0,
-        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C, Imgproc.THRESH_BINARY_INV,
-        35, 2.0
-    )
-
-    if (log) {
-        saveMat(thresh, "threshold.png", context)
-    }
-
-    // Find enclosed shapes in the image, this includes stuff like the dye dots
-    val contours = ArrayList<MatOfPoint>()
-    val hierarchy = Mat()
-    Imgproc.findContours(
-        thresh,
-        contours,
-        hierarchy,
-        Imgproc.RETR_EXTERNAL,
-        Imgproc.CHAIN_APPROX_SIMPLE
-    )
-
-    val visualization = image.clone()
-    // Draw all contours; for debugging
-    for (i in contours.indices) {
-        val color = Scalar(0.0, 255.0, 0.0) // Green in BGR
-        Imgproc.drawContours(visualization, contours, i, color, 2) // thickness = 2
-    }
-    if (log) {
-        saveMat(visualization, "contours.png", context)
-    }
-
-    gray.release()
-    thresh.release()
-    hierarchy.release()
-
-    return contours
 }
 
 
@@ -130,41 +140,52 @@ fun findContours(image: Mat, context: Context, log: Boolean): ArrayList<MatOfPoi
  * @return Null if no card candidate is found.
  */
 fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
+    Log.d("Pipeline", "--- Stage: Card Localization & Warping ---")
     val hsv = Mat()
     Imgproc.cvtColor(image, hsv, Imgproc.COLOR_BGR2HSV)
 
     val whiteMask = Mat()
     Core.inRange(
         hsv,
-        Scalar(0.0, 0.0, 180.0),    // min: any hue, low saturation, bright
-        Scalar(180.0, 40.0, 255.0),  // max: any hue, low saturation, max brightness
+        Scalar(0.0, 0.0, 160.0),
+        Scalar(180.0, 50.0, 255.0),
         whiteMask
     )
 
+    val whiteRatio = Core.countNonZero(whiteMask).toDouble() / image.total()
+    if (whiteRatio > 0.5) {
+        hsv.release(); whiteMask.release()
+        Log.d("Pipeline", "Warping Skipped: Image is ${(whiteRatio * 100).toInt()}% white, returning full image")
+        return image
+    }
+
     if (log) saveMat(whiteMask, "card_white_mask.png", context)
 
-    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+    val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
     val closed = Mat()
     Imgproc.morphologyEx(whiteMask, closed, Imgproc.MORPH_CLOSE, kernel)
-
-    if (log) saveMat(closed, "card_thresh.png", context)
 
     val contours = ArrayList<MatOfPoint>()
     val hierarchy = Mat()
     Imgproc.findContours(closed, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
 
-    // Pick largest contour that covers at least 10% of the frame
     val best = contours
         .filter { Imgproc.contourArea(it) > image.total() * 0.10 }
         .maxByOrNull { Imgproc.contourArea(it) }
 
+    val area = Imgproc.contourArea(best)
+    if (area > image.total() * 0.80) {
+        Log.w("Pipeline", "Card region too large — likely background bleed, skipping crop")
+        return image  // return full image rather than a bad crop
+    }
+
     if (best == null) {
-        Log.w("Image", "findAndWarpCard: no card contour found")
+        Log.w("Pipeline", "Warping Failed: No card contour found")
         return null
     }
 
-    // Use bounding rect instead of trying to find exact corners
     val rect = Imgproc.boundingRect(best)
+    Log.d("Pipeline", "Data Movement: Cropping to Card Bounding Rect: $rect")
     val cropped = Mat(image, rect)
 
     if (log) saveMat(cropped, "card_warped.png", context)
@@ -174,7 +195,6 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
 
     return cropped
 }
-
 
 /**
  * Attempts to find the calibration rectangle in the image.
@@ -187,8 +207,7 @@ fun findAndWarpCard(image: Mat, context: Context, log: Boolean): Mat? {
  * its bounding box
  */
 fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context: Context, log: Boolean): MutableList<Pair<Mat, Point>> {
-
-    // --- Step 1: collect all square-ish candidates ---
+    Log.d("Pipeline", "--- Stage: Calibration Square Isolation ---")
     data class Candidate(val region: Mat, val center: Point, val area: Double)
     val candidates = mutableListOf<Candidate>()
 
@@ -214,18 +233,19 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
         candidates.add(Candidate(Mat(image, rect), center, area))
     }
 
+    Log.d("Pipeline", "Data Extracted: Found ${candidates.size} square-like candidates")
+
     if (candidates.size < 4) {
-        Log.w("Image", "Not enough square candidates: ${candidates.size}")
+        Log.w("Pipeline", "Calibration Failed: Insufficient candidates")
         return mutableListOf()
     }
 
-    // --- Step 2: find the median area and filter outliers ---
     val sortedAreas = candidates.map { it.area }.sorted()
     val medianArea = sortedAreas[sortedAreas.size / 2]
     val areaFiltered = candidates.filter { abs(it.area - medianArea) / medianArea < 0.5 }
 
     if (areaFiltered.size < 4) {
-        Log.w("Image", "Not enough candidates after area filter: ${areaFiltered.size}")
+        Log.w("Pipeline", "Calibration Failed: Too many outliers after area filtering")
         return mutableListOf()
     }
 
@@ -239,21 +259,15 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
      * @return Double score.
      */
     fun collinearityScore(pts: List<Point>): Double {
-        // Use PCA / linear regression on the 4 centers
         val cx = pts.map { it.x }.average()
         val cy = pts.map { it.y }.average()
-
         var sxx = 0.0; var sxy = 0.0; var syy = 0.0
         for (p in pts) {
             val dx = p.x - cx; val dy = p.y - cy
             sxx += dx * dx; sxy += dx * dy; syy += dy * dy
         }
-
-        // Direction of best-fit line via angle of covariance matrix
         val angle = 0.5 * atan2(2 * sxy, sxx - syy)
-        val nx = -sin(angle); val ny = cos(angle) // normal to the line
-
-        // Sum of squared perpendicular distances
+        val nx = -sin(angle); val ny = cos(angle)
         return pts.sumOf { p ->
             val dx = p.x - cx; val dy = p.y - cy
             (dx * nx + dy * ny).pow(2)
@@ -272,12 +286,9 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
         val cx = pts.map { it.x }.average()
         val cy = pts.map { it.y }.average()
         val angle = atan2(pts.last().y - pts.first().y, pts.last().x - pts.first().x)
-
-        // Project onto the line direction and check spacing variance
         val projections = pts.map { p ->
             (p.x - cx) * cos(angle) + (p.y - cy) * sin(angle)
         }.sorted()
-
         val gaps = projections.zipWithNext { a, b -> b - a }
         val meanGap = gaps.average()
         return gaps.sumOf { (it - meanGap).pow(2) } / meanGap.pow(2)
@@ -286,7 +297,6 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
     var bestScore = Double.MAX_VALUE
     var bestGroup = areaFiltered.take(4)
 
-    // n choose 4 — only feasible if candidates stay small (they should after area filter)
     val n = areaFiltered.size
     for (i in 0 until n) for (j in i+1 until n) for (k in j+1 until n) for (l in k+1 until n) {
         val group = listOf(areaFiltered[i], areaFiltered[j], areaFiltered[k], areaFiltered[l])
@@ -303,14 +313,9 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
         .map { Pair(it.region, it.center) }
         .toMutableList()
 
-    if (log) {
-        shapes.forEachIndexed { i, shape -> saveMat(shape.first, "calibrationArea$i.png", context) }
-    }
-    Log.d("Image", "Shapes found: ${shapes.size}, best score: $bestScore")
-
+    Log.d("Pipeline", "Data Selected: Optimized set of 4 calibration squares identified")
     return shapes
 }
-
 
 /**
  * Extract the calibration colors from a calibration region.
@@ -320,13 +325,38 @@ fun findCalibrationSquares(image: Mat, contours: ArrayList<MatOfPoint>, context:
  */
 fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList<Scalar> {
     val colors = mutableListOf<Scalar>()
-
     for (shape in shapes) {
-        val mean = Core.mean(shape.first)
-        colors.add(mean)
+        if (shape.first.empty()) {
+            colors.add(Scalar(128.0, 128.0, 128.0))
+            continue
+        }
+        colors.add(Core.mean(shape.first))
     }
-
     return colors
+}
+
+/**
+ * Find a linear fit that tries to push image brightness towards calibration standard.
+ * Cannot always find a perfect match because this function does not know the expected RGB
+ * values.
+ *
+ * @param measured: List of measured values.
+ * @param expected: List of expected values.
+ * @return Pair<Double, Double>: (scale, offset)
+ */
+fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
+    val n = measured.size
+    if (n == 0) return Pair(1.0, 0.0)
+    val sumX = measured.sum()
+    val sumY = expected.sum()
+    val sumXY = measured.zip(expected).sumOf { it.first * it.second }
+    val sumX2 = measured.sumOf { it * it }
+    val denom = n * sumX2 - sumX * sumX
+    // Guard: avoid division by zero when all measured values are identical
+    if (denom == 0.0) return Pair(1.0, 0.0)
+    val scale = (n * sumXY - sumX * sumY) / denom
+    val offset = (sumY - scale * sumX) / n
+    return Pair(scale, offset)
 }
 
 
@@ -340,64 +370,35 @@ fun extractCalibrationColors(shapes: MutableList<Pair<Mat, Point>>): MutableList
  * @return Mat rebalanced image.
  */
 fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Mat {
-    val balanced = image.clone()
-
-    /**
-     * Find a linear fit that tries to push image brightness towards calibration standard.
-     * Cannot always find a perfect match because this function does not know the expected RGB
-     * values.
-     *
-     * @param measured: List of measured values.
-     * @param expected: List of expected values.
-     * @return Pair<Double, Double>: (scale, offset)
-     */
-    fun computeLinearFit(measured: DoubleArray, expected: DoubleArray): Pair<Double, Double> {
-        val n = measured.size
-        val sumX = measured.sum()
-        val sumY = expected.sum()
-        val sumXY = measured.zip(expected).sumOf { it.first * it.second }
-        val sumX2 = measured.sumOf { it * it }
-
-        val scale = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX)
-        val offset = (sumY - scale * sumX) / n
-
-        return Pair(scale, offset)
+    if (found.isEmpty() || reference.isEmpty() || found.size != reference.size) return image
+    return try {
+        Log.d("Pipeline", "--- Stage: Color Calibration ---")
+        val balanced = image.clone()
+        // OpenCV BGR: val[0]=Blue, val[1]=Green, val[2]=Red
+        val bMeasured = found.map { it.`val`[0] }.toDoubleArray()
+        val gMeasured = found.map { it.`val`[1] }.toDoubleArray()
+        val rMeasured = found.map { it.`val`[2] }.toDoubleArray()
+        val bExpected  = reference.map { it.`val`[0] }.toDoubleArray()
+        val gExpected  = reference.map { it.`val`[1] }.toDoubleArray()
+        val rExpected  = reference.map { it.`val`[2] }.toDoubleArray()
+        val (bScale, bOffset) = computeLinearFit(bMeasured, bExpected)
+        val (gScale, gOffset) = computeLinearFit(gMeasured, gExpected)
+        val (rScale, rOffset) = computeLinearFit(rMeasured, rExpected)
+        val channels = ArrayList<Mat>()
+        Core.split(balanced, channels)
+        if (channels.size >= 3) {
+            channels[0].convertTo(channels[0], -1, bScale, bOffset)
+            channels[1].convertTo(channels[1], -1, gScale, gOffset)
+            channels[2].convertTo(channels[2], -1, rScale, rOffset)
+            Core.merge(channels, balanced)
+        }
+        channels.forEach { it.release() }
+        balanced
+    } catch (e: Exception) {
+        android.util.Log.e("ImagePipeline", "rebalanceImage failed: ${e.message}", e)
+        image
     }
-
-    // Ugh
-    val rMeasured = found.map { it.`val`[0] }.toDoubleArray()
-    val gMeasured = found.map { it.`val`[1] }.toDoubleArray()
-    val bMeasured = found.map { it.`val`[2] }.toDoubleArray()
-
-    val bExpected = reference.map { it.`val`[0] }.toDoubleArray()
-    val gExpected = reference.map { it.`val`[1] }.toDoubleArray()
-    val rExpected = reference.map { it.`val`[2] }.toDoubleArray()
-
-    // Compute linear fits
-    val (bScale, bOffset) = computeLinearFit(bMeasured, bExpected)
-    val (gScale, gOffset) = computeLinearFit(gMeasured, gExpected)
-    val (rScale, rOffset) = computeLinearFit(rMeasured, rExpected)
-
-    Log.d("Image", "Measured B: ${bMeasured.contentToString()}")
-    Log.d("Image", "Expected B: ${bExpected.contentToString()}")
-    Log.d("Image", "Scale/Offset - B: $bScale, $bOffset | G: $gScale, $gOffset | R: $rScale, $rOffset")
-
-    // Apply correction
-    val channels = ArrayList<Mat>()
-    Core.split(balanced, channels)
-
-    channels[0].convertTo(channels[0], -1, bScale, bOffset)
-    channels[1].convertTo(channels[1], -1, gScale, gOffset)
-    channels[2].convertTo(channels[2], -1, rScale, rOffset)
-
-    Core.merge(channels, balanced)
-
-    // Clean up
-    channels.forEach { it.release() }
-
-    return balanced
 }
-
 
 /**
  * Get the center of a contour.
@@ -406,8 +407,10 @@ fun rebalanceImage(image: Mat, found: List<Scalar>, reference: List<Scalar>): Ma
  * @return Point: Center of contour.
  */
 fun getCenter(contour: MatOfPoint): Point {
-    val m = Imgproc.moments(contour)
-    return Point(m.m10 / m.m00, m.m01 / m.m00)
+    return try {
+        val m = Imgproc.moments(contour)
+        if (m.m00 == 0.0) Point(0.0, 0.0) else Point(m.m10 / m.m00, m.m01 / m.m00)
+    } catch (_: Exception) { Point(0.0, 0.0) }
 }
 
 
@@ -419,22 +422,17 @@ fun getCenter(contour: MatOfPoint): Point {
  * @return MatOfPoint: Shrunken contour.
  */
 fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
-    val center = getCenter(contour)
-
-    val points: MutableList<Point> = mutableListOf<Point>()
-    for (point in contour.toList()) {
-        val direction = Point(point.x - center.x, point.y - center.y)
-        val offset = Point(direction.x * shrink, direction.y * shrink)
-        val newPoint = Point(center.x + offset.x, center.y + offset.y)
-
-        points.add(newPoint)
-    }
-
-    val newContour = MatOfPoint(*points.toTypedArray())
-
-    return newContour
+    return try {
+        val effectiveShrink = shrink.coerceIn(0.01f, 1.0f)
+        val center = getCenter(contour)
+        val points = contour.toList().map { point ->
+            val dx = (point.x - center.x) * effectiveShrink
+            val dy = (point.y - center.y) * effectiveShrink
+            Point(center.x + dx, center.y + dy)
+        }
+        MatOfPoint(*points.toTypedArray())
+    } catch (_: Exception) { contour }
 }
-
 
 /**
  * Draw the ordering of the dots on the image.
@@ -445,92 +443,59 @@ fun shrinkContour(contour: MatOfPoint, shrink: Float): MatOfPoint {
  * @param selectionStates: List of selection states.
  * @return Bitmap: Image with ordering drawn.
  */
-fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highlightIndex: Int? = null, selectionStates: List<Boolean>? = null): Bitmap {
-    val output = Mat()
-
-    if (highlightIndex != null && highlightIndex in orderedDots.indices) {
-        // Dim the entire image to 40% intensity
-        image.convertTo(output, -1, 0.4, 0.0)
-
-        // Ensure alpha is full intensity (255) if it exists (so it's not transparent in Compose)
-        if (image.channels() == 4) {
-            val channels = ArrayList<Mat>()
-            Core.split(output, channels)
-            channels[3].setTo(Scalar(255.0))
-            Core.merge(channels, output)
-            channels.forEach { it.release() }
-        }
-
-        // Highlight the focused well by restoring it from the original image
-        val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
-        val shrunkenContour = orderedDots[highlightIndex].first
-        val center = getCenter(shrunkenContour)
-
-        // Since dots are shrunken by 0.4 in findDots, we use a radius ~3x larger to cover the whole well
-        val area = Imgproc.contourArea(shrunkenContour)
-        val shrunkenRadius = sqrt(area / Math.PI)
-        val highlightRadius = (shrunkenRadius * 3.0).toInt()
-
-        Imgproc.circle(mask, center, highlightRadius, Scalar(255.0), Imgproc.FILLED)
-        image.copyTo(output, mask)
-        mask.release()
-    } else {
+fun drawOrdering(
+    image: Mat,
+    orderedDots: List<Pair<MatOfPoint, Scalar>>,
+    highlightIndex: Int? = null,
+    selectionStates: List<Boolean>? = null
+): Bitmap {
+    return try {
+        if (image.empty()) return createBitmap(1, 1)
+        val output = Mat()
         image.copyTo(output)
-    }
+        // Loop through dots and draw them on the image
+        for ((index, pair) in orderedDots.withIndex()) {
+            val isSelected = selectionStates?.getOrNull(index) ?: true
+            val contour = pair.first
+            val center = getCenter(contour)
+            val area = Imgproc.contourArea(contour)
+            if (area <= 0) continue
+            val radius = sqrt(area / Math.PI)
+            val fontScale = (radius / 20.0).coerceAtLeast(0.3)
+            val thickness = (fontScale * 3).toInt().coerceAtLeast(1)
+            val text = (index + 1).toString()
+            val baseline = IntArray(1)
+            val textSize = Imgproc.getTextSize(
+                text, Imgproc.FONT_HERSHEY_SIMPLEX, fontScale, thickness, baseline
+            )
+            val textOrigin = Point(
+                center.x - textSize.width / 2.0,
+                center.y + textSize.height / 2.0
+            )
 
-    // Loop through dots and draw them on the image
-    for ((index, pair) in orderedDots.withIndex()) {
-        val isSelected = selectionStates?.getOrNull(index) ?: true
-        val contour = pair.first
-        val center = getCenter(contour)
-
-        // Estimate dot radius from contour area
-        val area = Imgproc.contourArea(contour)
-        val radius = sqrt(area / Math.PI)
-
-        // Scale font so text fills roughly half the dot diameter
-        val fontScale = radius / 20.0
-        val thickness = (fontScale * 3).toInt().coerceAtLeast(1)
-        val outlineThickness = thickness + 4
-
-        val text = (index + 1).toString()
-
-        // Measure text so we can center it
-        val baseline = IntArray(1)
-        val textSize = Imgproc.getTextSize(text, Imgproc.FONT_HERSHEY_SIMPLEX, fontScale, thickness, baseline)
-        val textOrigin = Point(
-            center.x - textSize.width / 2.0,
-            center.y + textSize.height / 2.0
-        )
-
-        Imgproc.drawContours(output, listOf(contour), -1, Scalar(255.0, 255.0, 255.0, 255.0), -1)
-        // Color and visual style based on selection state
-        val color = if (isSelected) Scalar(0.0, 0.0, 0.0, 255.0) else Scalar(128.0, 128.0, 128.0, 128.0)
-        val textColor = if (isSelected) Scalar(255.0, 255.0, 255.0, 255.0) else Scalar(200.0, 200.0, 200.0, 128.0)
-
-        Imgproc.drawContours(output, listOf(contour), -1, color, if (isSelected) 6 else 2)
-
-        // White outline drawn first, then black text on top
-        // Imgproc.drawContours(output, listOf(contour), -1
-        // fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness
-        Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX,
-            fontScale, color, thickness)
-
-        if (!isSelected) {
-            // Draw an X over unselected wells
-            val xSize = radius * 0.8
-            Imgproc.line(output, Point(center.x - xSize, center.y - xSize), Point(center.x + xSize, center.y + xSize), color, 2)
-            Imgproc.line(output, Point(center.x + xSize, center.y - xSize), Point(center.x - xSize, center.y + xSize), color, 2)
+            // White outline drawn first, then black text on top
+            // Imgproc.drawContours(output, listOf(contour), -1
+            // fontScale, Scalar(255.0, 255.0, 255.0, 255.0), outlineThickness
+            val color = if (isSelected) Scalar(0.0, 0.0, 0.0, 255.0)
+            else Scalar(128.0, 128.0, 128.0, 128.0)
+            Imgproc.drawContours(output, listOf(contour), -1, Scalar(255.0, 255.0, 255.0, 255.0), -1)
+            Imgproc.drawContours(output, listOf(contour), -1, color, if (isSelected) 6 else 2)
+            Imgproc.putText(output, text, textOrigin, Imgproc.FONT_HERSHEY_SIMPLEX, fontScale, color, thickness)
+            if (!isSelected) {
+                // Draw an X over unselected wells
+                val xSize = radius * 0.8
+                Imgproc.line(output, Point(center.x - xSize, center.y - xSize), Point(center.x + xSize, center.y + xSize), color, 2)
+                Imgproc.line(output, Point(center.x + xSize, center.y - xSize), Point(center.x - xSize, center.y + xSize), color, 2)
+            }
         }
+        val bitmap = createBitmap(output.cols().coerceAtLeast(1), output.rows().coerceAtLeast(1))
+        Utils.matToBitmap(output, bitmap)
+        output.release()
+        bitmap
+    } catch (e: Exception) {
+        createBitmap(1, 1)
     }
-
-    val bitmap = createBitmap(output.cols(), output.rows())
-    Utils.matToBitmap(output, bitmap)
-    output.release()
-
-    return bitmap
 }
-
 
 /**
  * Assign a grid index to each dot.
@@ -542,48 +507,33 @@ fun drawOrdering(image: Mat, orderedDots: List<Pair<MatOfPoint, Scalar>>, highli
 fun assignGridIndices(
     dots: List<Pair<MatOfPoint, Scalar>>
 ): List<Pair<Pair<MatOfPoint, Scalar>, Pair<Int, Int>>> {
-    if (dots.isEmpty()) return emptyList()
-
-    val centers = dots.map { Pair(it, getCenter(it.first)) }
-
-    // Estimate grid spacing from nearest-neighbor distances
-    val distances = centers.map { (_, p) ->
-        centers
-            .filter { (_, q) -> q != p }
-            .minOf { (_, q) -> Math.hypot(q.x - p.x, q.y - p.y) }
+    if (dots.size < 2) return dots.mapIndexed { i, d -> Pair(d, Pair(0, i)) }
+    return try {
+        val centers = dots.map { Pair(it, getCenter(it.first)) }
+        val distances = centers.map { (_, p) ->
+            centers.filter { (_, q) -> q != p }
+                .minOfOrNull { (_, q) -> Math.hypot(q.x - p.x, q.y - p.y) } ?: 0.0
+        }
+        val spacing = distances.average()
+        if (spacing <= 0.0) return dots.mapIndexed { i, d -> Pair(d, Pair(0, i)) }
+        val rowTolerance = spacing * 0.6
+        val rows = mutableListOf<MutableList<Pair<Pair<MatOfPoint, Scalar>, Point>>>()
+        // Sort points in each row by X proximity
+        for (item in centers.sortedBy { it.second.y }) {
+            val matchingRow = rows.find { row ->
+                val avgY = row.map { it.second.y }.average()
+                abs(item.second.y - avgY) < rowTolerance
+            }
+            if (matchingRow != null) matchingRow.add(item) else rows.add(mutableListOf(item))
+        }
+        rows.sortedBy { row -> row.map { it.second.y }.average() }
+            .flatMapIndexed { rowIdx, row ->
+                row.sortedBy { it.second.x }
+                    .mapIndexed { colIdx, item -> Pair(item.first, Pair(rowIdx, colIdx)) }
+            }
+    } catch (e: Exception) {
+        dots.mapIndexed { i, d -> Pair(d, Pair(0, i)) }
     }
-    val spacing = distances.average()
-    // At 30 degrees of rotation, a neighbor in the same row can be
-    // offset vertically by spacing * sin(30) = spacing * 0.5
-    // Use 0.6 to give a little headroom
-    val rowTolerance = spacing * 0.6
-
-    // Group into rows by Y proximity, using spacing-aware tolerance
-    val sortedByY = centers.sortedBy { it.second.y }
-    val rows = mutableListOf<MutableList<Pair<Pair<MatOfPoint, Scalar>, Point>>>()
-
-    // Sort points in each row by X proximity
-    for (item in sortedByY) {
-        val matchingRow = rows.find { row ->
-            val avgY = row.map { it.second.y }.average()
-            Math.abs(item.second.y - avgY) < rowTolerance
-        }
-        if (matchingRow != null) {
-            matchingRow.add(item)
-        } else {
-            rows.add(mutableListOf(item))
-        }
-    }
-
-    // Within each row, sort by X to get column index
-    return rows
-        .sortedBy { row -> row.map { it.second.y }.average() }
-        .flatMapIndexed { rowIdx, row ->
-            row.sortedBy { it.second.x }
-                .mapIndexed { colIdx, item ->
-                    Pair(item.first, Pair(rowIdx, colIdx))
-                }
-        }
 }
 
 
@@ -595,16 +545,15 @@ fun assignGridIndices(
  * @return Scalar: Color.
  */
 fun extractContour(image: Mat, contour: MatOfPoint): Mat {
-    val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
-    Imgproc.drawContours(mask, listOf(contour), 0,
-        Scalar(255.0), Imgproc.FILLED)
-
-    val extractedData = Mat()
-    image.copyTo(extractedData, mask)
-
-    return extractedData
+    return try {
+        val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
+        Imgproc.drawContours(mask, listOf(contour), 0, Scalar(255.0), Imgproc.FILLED)
+        val extractedData = Mat()
+        image.copyTo(extractedData, mask)
+        mask.release()
+        extractedData
+    } catch (_: Exception) { Mat() }
 }
-
 
 /**
  * Extract the dye color from an image.
@@ -614,58 +563,46 @@ fun extractContour(image: Mat, contour: MatOfPoint): Mat {
  * @return Scalar: Color.
  */
 fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
-    // Convert to HSV for better color filtering
-    val hsv = Mat()
-    Imgproc.cvtColor(extractedMat, hsv, Imgproc.COLOR_BGR2HSV)
+    if (extractedMat.empty()) return Scalar(128.0, 128.0, 128.0, 0.0)
+    val hsv = Mat(); val colorMask = Mat(); val whiteMask = Mat(); val alphaMask = Mat()
+    return try {
+        Imgproc.cvtColor(extractedMat, hsv, Imgproc.COLOR_BGR2HSV)
+        Core.inRange(hsv, Scalar(0.0, 15.0, 50.0), Scalar(180.0, 255.0, 255.0), colorMask)
+        Core.inRange(hsv, Scalar(0.0, 0.0, 200.0), Scalar(180.0, 40.0, 255.0), whiteMask)
+        Core.subtract(colorMask, whiteMask, colorMask)
+        val channels = ArrayList<Mat>()
+        Core.split(extractedMat, channels)
+        if (channels.size >= 4) {
+            // Create mask: alpha > 0
+            Imgproc.threshold(channels[3], alphaMask, 0.0, 255.0, Imgproc.THRESH_BINARY)
+        }
+        channels.forEach { it.release() }
 
-    // Create a mask that excludes white pixels and black (outside contour) pixels
-    // White in HSV: low saturation, high value
-    // Black (outside contour): near-zero value
-    val colorMask = Mat()
-    Core.inRange(
-        hsv,
-        Scalar(0.0, 15.0, 50.0),   // min: any hue, low saturation threshold, not too dark
-        Scalar(180.0, 255.0, 255.0), // max: full range
-        colorMask
-    )
+        if (Core.countNonZero(colorMask) == 0) {
+            return Core.mean(extractedMat,
+                if (!alphaMask.empty()) alphaMask else Mat())
+        }
 
-    // Also exclude near-white pixels (high value + low saturation)
-    val whiteMask = Mat()
-    Core.inRange(
-        hsv,
-        Scalar(0.0, 0.0, 200.0),   // high brightness
-        Scalar(180.0, 40.0, 255.0), // low saturation = white
-        whiteMask
-    )
-
-    // Subtract white mask from color mask
-    Core.subtract(colorMask, whiteMask, colorMask)
-
-    // Fall back to white if the mask filtered everything out
-    if (Core.countNonZero(colorMask) == 0) {
-        return Scalar(255.0, 255.0, 255.0, 255.0)
+        if (selectionStrategy == "Mean") {
+            Core.mean(extractedMat, colorMask)
+        } else {
+            val moments = Imgproc.moments(colorMask)
+            if (moments.m00 == 0.0) return Core.mean(extractedMat, colorMask)
+            val cx = (moments.m10 / moments.m00).toInt()
+            val cy = (moments.m01 / moments.m00).toInt()
+            // Clamp to prevent out-of-bounds submat
+            val safeX = cx.coerceIn(2, extractedMat.cols() - 3)
+            val safeY = cy.coerceIn(2, extractedMat.rows() - 3)
+            // Takes mean of a small rectangle of pixels to reduce noise
+            Core.mean(extractedMat.submat(Rect(safeX - 2, safeY - 2, 5, 5)))
+        }
+    } catch (_: Exception) {
+        Scalar(128.0, 128.0, 128.0, 0.0)
+    } finally {
+        hsv.release(); colorMask.release(); whiteMask.release()
+        if (!alphaMask.empty()) alphaMask.release()
     }
-
-    if (selectionStrategy == "Mean") {
-        // Get mean color of remaining pixels in BGR
-        return Core.mean(extractedMat, colorMask)
-    }
-    else if (selectionStrategy == "Center") {
-        // Get the centroid of the mask using moments
-        val moments = Imgproc.moments(colorMask)
-
-        val cx = (moments.m10 / moments.m00).toInt()
-        val cy = (moments.m01 / moments.m00).toInt()
-
-        // Sample the pixel at the centroid in BGR
-        val pixel = extractedMat.get(cy, cx)
-        return Scalar(pixel[0], pixel[1], pixel[2], 255.0)
-    }
-
-    // Fallback if invalid selection strategy was chosen
-    return Scalar(255.0, 255.0, 255.0, 255.0)
 }
-
 
 /**
  * Find the donut shapes in the preprocessed image.
@@ -678,93 +615,129 @@ fun extractDyeColor(extractedMat: Mat, selectionStrategy: String): Scalar {
  * @param shrink: Shrink factor.
  * @return MutableList<Pair<MatOfPoint, Scalar>>: List of dots.
  */
-fun findDots(image: Mat, contours: ArrayList<MatOfPoint>, context: Context,
-             log: Boolean, selectionStrategy: String, shrink: Float = 0.4f):
-        MutableList<Pair<MatOfPoint, Scalar>> {
-    val candidates: MutableList<Pair<MatOfPoint, Scalar>> = mutableListOf<Pair<MatOfPoint, Scalar>>()
+fun findDots(
+    image: Mat,
+    contours: ArrayList<MatOfPoint>,
+    context: Context,
+    log: Boolean,
+    selectionStrategy: String,
+    shrink: Float = 0.35f
+): MutableList<Pair<MatOfPoint, Scalar>> {
+    return try {
+        Log.d("Pipeline", "--- Stage: Well Identification ---")
+        val candidates = mutableListOf<Pair<MatOfPoint, Scalar>>()
 
-    var i = 0
-    for (contour in contours) {
-        val area = Imgproc.contourArea(contour)
-        val rect = Imgproc.boundingRect(contour)
-        val diameter = (rect.width + rect.height) / 2.0
-
-        // Check if the area of the contour matches a circle
-        // with the same diameter as the width of the contour
-        val circularArea = (diameter / 2.0).pow(2) * 3.141592
-        val areaError = abs(((circularArea - area) / area))
-
-        // Check if the perimeter is also circular enough
-        val perimeter = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
-        val circularity = 4 * Math.PI * area / (perimeter * perimeter)
-        val perimeterError = abs(1 - circularity)
-
-        // Check error tolerance
-        if (areaError < 0.3 && perimeterError < 0.4 && area > 100) {
-            Log.d("Image", "Dots " + areaError.toString() + " " + perimeterError.toString())
-
-            val center = shrinkContour(contour, shrink)
-            val extractedData = extractContour(image, center)
-
-            if (log) {saveMat(extractedData, "candidate " + i.toString() + ".png", context)}
-
-            val dataPoint = extractDyeColor(extractedData, selectionStrategy)
-            val pair = Pair(center, dataPoint)
-            candidates.add(pair)
-            i += 1
+        for (contour in contours) {
+            val area = Imgproc.contourArea(contour)
+            if (area < 100) continue
+            val rect = Imgproc.boundingRect(contour)
+            val diameter = (rect.width + rect.height) / 2.0
+            val circularArea = (diameter / 2.0).pow(2) * Math.PI
+            val areaError = abs((circularArea - area) / area)
+            val perim = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
+            if (perim <= 0) continue
+            val circularity = 4 * Math.PI * area / (perim * perim)
+            val perimeterError = abs(1 - circularity)
+            // Check error tolerance
+            if (areaError < 0.3 && perimeterError < 0.4) {
+                val center = shrinkContour(contour, shrink.coerceIn(0.01f, 1.0f))
+                val extracted = extractContour(image, center)
+                if (!extracted.empty()) {
+                    candidates.add(Pair(center, extractDyeColor(extracted, selectionStrategy)))
+                    extracted.release()
+                }
+            }
         }
-    }
 
-    // Sort candidates by size
-    val sizeSorted = candidates
-        .map { it to Pair(it, Imgproc.contourArea(it.first)) }
-        .sortedByDescending { it.second.second }
+        Log.d("Pipeline", "Identified ${candidates.size} well candidates")
+        if (candidates.isEmpty()) return mutableListOf()
+        // Sort candidates by size
+        val sizeSorted = candidates
+            .map { it to Imgproc.contourArea(it.first) }
+            .sortedByDescending { it.second }
 
-    // Candidate locations
-    val top = sizeSorted.take(4)
-    val areas = top.map { it.second.second }
-    val medianArea = areas.sorted()[areas.size / 2]
+        // Safe median: require at least 2 candidates; use index size/2 (lower-middle)
+        if (sizeSorted.size < 2) return mutableListOf()
+        // Candidate locations
+        val top = sizeSorted.take(4)
+        val medianArea = top.map { it.second }.sorted()[top.size / 2]
 
-    val tolerance = 0.2
-    val finalDots = sizeSorted.filter { (_, area) ->
-        abs(area.second - medianArea) / medianArea < tolerance
-    }.map { it.first }
+        if (medianArea <= 0) return mutableListOf()
 
-    if (log) {
-        i = 0
-        for (pair in finalDots) {
-            val contour = pair.first
-            val mask = Mat.zeros(image.size(), CvType.CV_8UC1)
-            Imgproc.drawContours(mask, listOf(contour), 0,
-                Scalar(255.0), Imgproc.FILLED)
+        val finalDots = sizeSorted
+            .filter { abs(it.second - medianArea) / medianArea < 0.2 }
+            .map { it.first }
 
-            val extractedData = Mat()
-            image.copyTo(extractedData, mask)
-
-            saveMat(extractedData, "center " + i.toString() + ".png", context)
-            i += 1
+        if (log) {
+            finalDots.forEachIndexed { i, dot ->
+                val extracted = extractContour(image, dot.first)
+                if (!extracted.empty()) { saveMat(extracted, "dot$i.png", context); extracted.release() }
+            }
         }
+
+        val indexed = assignGridIndices(finalDots)
+        indexed.sortedWith(compareBy({ it.second.first }, { it.second.second }))
+            .map { it.first }
+            .toMutableList()
+    } catch (e: Exception) {
+        AppErrorLogger.logError(context, "ImagePipeline", "findDots failed", e)
+        mutableListOf()
     }
-
-    val indexed = assignGridIndices(finalDots)
-
-    // Sort row-major (top to bottom, left to right)
-    val sorted = indexed
-        .sortedWith(compareBy({ it.second.first }, { it.second.second }))
-        .map { it.first }
-
-    return sorted.toMutableList()
 }
 
 
 /**
- * List of expected colors.
+ * Build a circular contour around a center point. Useful for manually added ROIs.
+ *
+ * @param center Center of the ROI in image coordinates.
+ * @param radius Radius in pixels.
+ * @param numPoints Number of vertices used to approximate the circle.
+ * @return MatOfPoint contour approximating the circle.
  */
+fun createCircularContour(center: Point, radius: Double, numPoints: Int = 36): MatOfPoint {
+    val points = (0 until numPoints).map { i ->
+        val theta = 2.0 * PI * i / numPoints
+        Point(
+            center.x + radius * kotlin.math.cos(theta),
+            center.y + radius * kotlin.math.sin(theta)
+        )
+    }
+    return MatOfPoint(*points.toTypedArray())
+}
+
+/**
+ * Estimate a reasonable ROI radius from already detected wells.
+ */
+fun estimateWellRadius(dots: List<Pair<MatOfPoint, Scalar>>, fallback: Double = 18.0): Double {
+    if (dots.isEmpty()) return fallback
+    val radii = dots.map { sqrt(Imgproc.contourArea(it.first) / Math.PI) }.filter { it.isFinite() && it > 0 }
+    if (radii.isEmpty()) return fallback
+    return radii.sorted()[radii.size / 2]
+}
+
+/**
+ * Extract a dye color from a manually selected image location by reusing the same color extraction
+ * strategy as automatically detected wells.
+ */
+fun extractManualDotAtPoint(
+    image: Mat,
+    center: Point,
+    radius: Double,
+    selectionStrategy: String,
+    shrink: Float = 0.85f
+): Pair<MatOfPoint, Scalar> {
+    val baseContour = createCircularContour(center, radius)
+    val sampleContour = shrinkContour(baseContour, shrink)
+    val extractedData = extractContour(image, sampleContour)
+    val dataPoint = extractDyeColor(extractedData, selectionStrategy)
+    extractedData.release()
+    return Pair(sampleContour, dataPoint)
+}
+
+// Colors used on dye sheet, arranged in BGR ordering
 val expectedColors = mutableListOf(
-    Scalar(0.0, 0.0, 0.0),       // Black
-    Scalar(255.0, 255.0, 0.0),   // Cyan (B=255, G=255, R=0)
-    Scalar(0.0, 255.0, 255.0),   // Yellow (B=0, G=255, R=255)
-    Scalar(255.0, 0.0, 255.0)    // Magenta (B=255, G=0, R=255)
+    Scalar(0.0, 0.0, 0.0), Scalar(255.0, 255.0, 0.0),
+    Scalar(0.0, 255.0, 255.0), Scalar(255.0, 0.0, 255.0)
 )
 
 
@@ -778,42 +751,38 @@ val expectedColors = mutableListOf(
  * @param selectionStrategy: Strategy to use for color extraction.
  * @return Sample: Preprocessed image.
  */
-fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStrategy: String, selectionStrategy: String): Sample {
-    val contours = findContours(image, context, log)
-
-    val shapes = findCalibrationSquares(image, contours, context, log)
-    val colors = extractCalibrationColors(shapes)
-
-    val dots = findDots(image, contours, context, log, selectionStrategy)
-
-    // Requires that control dot is in top left
-    val controlDot = extractDyeColor(extractContour(image, dots[0].first), selectionStrategy)
-
-    var balanced = image
-    if (normalizationStrategy == "Regression") {
-        balanced = rebalanceImage(image, colors, expectedColors)
-    }
-    else {
-        colors.add(0, controlDot)
-        expectedColors.add(0, Scalar(255.0, 255.0, 255.0))
-        if (normalizationStrategy == "MinMax") {
-
+fun preprocessImage(
+    image: Mat,
+    context: Context,
+    log: Boolean,
+    normalizationStrategy: String,
+    selectionStrategy: String
+): Sample? { // <-- return nullable now
+    return try {
+        if (image.empty()) {
+            AppErrorLogger.logError(context, "ImagePipeline", "preprocessImage: empty input")
+            return null
         }
-        else if (normalizationStrategy == "Z-Score") {
+        val contours = findContours(image, context, log)
+        val shapes   = findCalibrationSquares(image, contours, context, log)
+        val colors   = extractCalibrationColors(shapes)
+        val dots     = findDots(image, contours, context, log, selectionStrategy)
 
+        if (dots.isEmpty()) {
+            AppErrorLogger.logError(context, "ImagePipeline", "No wells detected — skipping sample")
+            return null
         }
-    }
+        var balanced = image
+//        if (normalizationStrategy == "Regression" && colors.size == 4) {
+//            balanced = rebalanceImage(image, colors, expectedColors)
+//        }
 
-    val dotColors = dots.map {
-        extractDyeColor(extractContour(balanced, it.first), selectionStrategy)
+        val orderingImage = drawOrdering(image, dots)
+        Sample(image, image, orderingImage, dots, squares = colors)
+    } catch (e: Exception) {
+        AppErrorLogger.logError(context, "ImagePipeline", "preprocessImage failed", e)
+        null
     }
-
-    val orderingImage = drawOrdering(image, dots)
-    for (color in dotColors) {
-        Log.d("Image", "Color: $color")
-    }
-
-    return Sample(image, balanced, orderingImage, dots)
 }
 
 /**
@@ -839,25 +808,85 @@ fun preprocessImage(image: Mat, context: Context, log: Boolean, normalizationStr
  *
  * @return A SampleDataset containing the preprocessed images.
  */
-suspend fun ingestImages(addresses: List<Uri>, context: Context, log: Boolean = false, normalizationStrategy: String = "Regression", selectionStrategy: String = "Mean"): SampleDataset = coroutineScope {
-    val images = addresses.map { uri ->
+suspend fun ingestImages(
+    addresses: List<Uri>,
+    context: Context,
+    log: Boolean = false,
+    normalizationStrategy: String = "Regression",
+    selectionStrategy: String = "Mean"
+): SampleDataset = coroutineScope {
+    Log.d("Pipeline", "Ingesting ${addresses.size} image(s)")
+
+    val results = addresses.map { uri ->
         async(Dispatchers.Default) {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val bitmap = BitmapFactory.decodeStream(inputStream)
-            inputStream?.close()
-            val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
-            val mat = Mat()
-            Utils.bitmapToMat(mutableBitmap, mat)
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: run {
+                        AppErrorLogger.logError(context, "Ingest", "Cannot open stream: $uri")
+                        return@async null
+                    }
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
 
-            val image = Mat()
-            val ratio = min(1000.0 / mat.width().toDouble(), 1000.0 / mat.height().toDouble())
-            Imgproc.resize(mat, image,  Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
+                if (bitmap == null) {
+                    AppErrorLogger.logError(context, "Ingest", "BitmapFactory returned null: $uri")
+                    return@async null
+                }
 
-            val cropped = findAndWarpCard(image, context, log) ?: image
+                val rotation = context.contentResolver.openInputStream(uri)?.use { exifStream ->
+                    val exif = ExifInterface(exifStream)
+                    when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+                        ExifInterface.ORIENTATION_ROTATE_90  -> 90f
+                        ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                        ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                        else -> 0f
+                    }
+                } ?: 0f
 
-            preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
+                val mutableBitmap = if (rotation != 0f) {
+                    val matrix = android.graphics.Matrix().apply { postRotate(rotation) }
+                    Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                } else {
+                    bitmap.copy(Bitmap.Config.ARGB_8888, true)
+                }
+
+                val mat = Mat()
+                Utils.bitmapToMat(mutableBitmap, mat)
+                mutableBitmap.recycle()
+
+                if (mat.empty()) {
+                    AppErrorLogger.logError(context, "Ingest", "Mat conversion produced empty result: $uri")
+                    mat.release()
+                    return@async null
+                }
+
+                val image = Mat()
+                val ratio = minOf(
+                    1000.0 / mat.width().toDouble(),
+                    1000.0 / mat.height().toDouble()
+                ).coerceAtMost(1.0)  // never upscale
+                Imgproc.resize(mat, image, Size(0.0, 0.0), ratio, ratio, Imgproc.INTER_AREA)
+                mat.release()
+
+                val cropped = findAndWarpCard(image, context, log) ?: image
+                preprocessImage(cropped, context, log, normalizationStrategy, selectionStrategy)
+
+            } catch (e: CancellationException) {
+                throw e   // propagate coroutine cancellation — never swallow
+            } catch (e: Exception) {
+                AppErrorLogger.logError(context, "Ingest", "Failed processing URI: $uri", e)
+                null
+            }
         }
     }.awaitAll()
 
-    SampleDataset(images.toMutableList())
+    val successful = results.filterNotNull()
+    if (successful.size < addresses.size) {
+        AppErrorLogger.logError(
+            context, "Ingest",
+            "${addresses.size - successful.size} of ${addresses.size} image(s) failed processing"
+        )
+    }
+
+    SampleDataset(successful.toMutableList())
 }
